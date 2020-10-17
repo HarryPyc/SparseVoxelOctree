@@ -83,7 +83,6 @@
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <CudaCompile Include="kernel.cu" />
     <CudaCompile Include="Voxel.cu" />
   </ItemGroup>
   <ItemGroup>
@@ -91,6 +90,7 @@
     <ClInclude Include="Voxel.cuh" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="main.cpp" />
     <ClCompile Include="Mesh.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

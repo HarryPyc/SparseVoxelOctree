@@ -1,8 +1,10 @@
 #pragma once
+#define TRIANGLE_PER_THREAD
 #include "cuda_runtime.h"
 #include <cuda.h>
 #define GLM_FORCE_CUDA
 #include <glm/glm.hpp>
+#include "Mesh.h"
 
 class Voxel {
 public:
@@ -21,4 +23,4 @@ __device__ __host__ unsigned int ConvVec4ToUint(glm::vec4 val);
 
 const unsigned short voxelDim = 512;
 
-void Voxelization(CudaMesh mesh);
+void Voxelization(Mesh &mesh, Voxel* d_voxel);

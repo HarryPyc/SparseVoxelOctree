@@ -5,11 +5,16 @@ Mesh::Mesh(const std::string& path)
 	data = obj::loadModelFromFile(path);
 }
 
-void Mesh::UploatToDevice(CudaMesh cuMesh)
+void Mesh::UploatToDevice(CudaMesh &cuMesh)
 {
-	cuMesh.vSize = data.vertex.size(), cuMesh.nSize = data.normal.size(), cuMesh.idxSize = data.faces["default"].size();
-	cuMesh.minAABB = glm::vec3(data.min[0], data.min[1], data.min[2]);
-	cuMesh.maxAABB = glm::vec3(data.max[0], data.max[1], data.max[2]);
+	cuMesh.triNum = data.faces["default"].size() / 3;
+	//Reconstruct AABB
+	glm::vec3 _minAABB = glm::vec3(data.min[0], data.min[1], data.min[2]);
+	glm::vec3 _maxAABB = glm::vec3(data.max[0], data.max[1], data.max[2]);
+	glm::vec3 l = _maxAABB - _minAABB;
+	cuMesh.delta = glm::max(l.x, glm::max(l.y, l.z));
+	cuMesh.minAABB = (_minAABB + _maxAABB) / 2.f - cuMesh.delta / 2.f;
+
 	size_t vert_size = data.vertex.size() * sizeof(float), normal_size = data.normal.size() * sizeof(float),
 		index_size = data.faces["default"].size() * sizeof(unsigned short);
 	cudaError_t cudaStatus;
@@ -30,14 +35,4 @@ void Mesh::UploatToDevice(CudaMesh cuMesh)
 	if (cudaStatus != cudaSuccess) printf("d_idx cudaMemcpy Failed\n");
 }
 
-CudaMesh::CudaMesh()
-{
-	d_v = NULL, d_n = NULL, d_idx = NULL;
-}
 
-CudaMesh::~CudaMesh()
-{
-	cudaFree(d_v);
-	cudaFree(d_n);
-	cudaFree(d_idx);
-}
