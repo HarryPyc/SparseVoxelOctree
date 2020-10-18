@@ -14,12 +14,12 @@ __device__ __host__ unsigned int ConvVec4ToUint(glm::vec4 val) {
 	return (uint(val.w) & 0x000000FF) << 24U | (uint(val.z) & 0x000000FF) << 16U | (uint(val.y) & 0x000000FF) << 8U | (uint(val.x) & 0x000000FF);
 }
 
-Voxel::Voxel()
+__host__  __device__ Voxel::Voxel()
 {
 	c = 0, n = 0;
 }
 
-Voxel::~Voxel() {
+__host__  __device__ Voxel::~Voxel() {
 
 }
 
@@ -36,25 +36,79 @@ __host__ __device__ void Voxel::SetInfo(glm::vec3 color, glm::vec3 normal) {
 	normal = (normal + 1.f) / 2.f * 255.f;
 	n = ((uint(normal.z) & 0x000000FF) << 16U | (uint(normal.y) & 0x000000FF) << 8U | (uint(normal.x) & 0x000000FF));
 }
-
+//transfer 3D index to 1D array index
 __device__ inline size_t ToArrayIdx(glm::uvec3 coord) {
 	return coord.z + coord.y * voxelDim + coord.x * voxelDim * voxelDim;
 }
-
-__device__ inline glm::uvec3 GetIndex(glm::vec3 pos, glm::vec3 center, float vLength) {
-	glm::vec3 minAABB = center - vLength;
-	return glm::uvec3((pos - center) / vLength * float(voxelDim));
+//Get voxel index for current position
+__device__ inline glm::uvec3 GetVoxelIndex(glm::vec3 pos, glm::vec3 minAABB, float delta) {
+	return glm::uvec3((pos - minAABB)/delta * float(voxelDim));
+}
+//Get world position given voxel index
+__device__ inline glm::vec3 GetVoxelWorldPos(glm::uvec3 idx, glm::vec3 minAABB, float delta) {
+	return glm::vec3(idx) * delta / float(voxelDim) + minAABB;
 }
 
-__device__ inline bool VoxelTriangleIntersection() {
-
+__device__ inline glm::vec3 WorldSpaceInterpolation(glm::vec3 A, glm::vec3 B, glm::vec3 C, glm::vec3 P) {
+	glm::vec3 AB = B - A, AC = C - A, AP = P - A, N = glm::cross(AB, AC);
+	float DotNN = glm::dot(N, N);
+	glm::vec3 uvw;
+	uvw[1] = glm::dot(glm::cross(AP, AC), N) / DotNN;
+	uvw[2] = glm::dot(glm::cross(AB, AP), N) / DotNN;
+	uvw[0] = 1.f - uvw[1] - uvw[2];
+	return uvw;
 }
+
+__device__ inline bool VoxelTriangleIntersection(Triangle tri, glm::vec3 vMinAABB) {
+	const float dotnp = glm::dot(tri.n, vMinAABB);
+	if ((dotnp + tri.d1) * (dotnp + tri.d2) > 0)
+		return false;
+	bool xy, xz, yz;
+	xy = (glm::dot(tri.ne_xy[0], glm::vec2(vMinAABB.x, vMinAABB.y)) + tri.de_xy[0]) >= 0 &&
+		(glm::dot(tri.ne_xy[1], glm::vec2(vMinAABB.x, vMinAABB.y)) + tri.de_xy[1]) >= 0 &&
+		(glm::dot(tri.ne_xy[2], glm::vec2(vMinAABB.x, vMinAABB.y)) + tri.de_xy[2]) >= 0;
+	xz = (glm::dot(tri.ne_xz[0], glm::vec2(vMinAABB.x, vMinAABB.z)) + tri.de_xz[0]) >= 0 &&
+		(glm::dot(tri.ne_xz[1], glm::vec2(vMinAABB.x, vMinAABB.z)) + tri.de_xz[1]) >= 0 &&
+		(glm::dot(tri.ne_xz[2], glm::vec2(vMinAABB.x, vMinAABB.z)) + tri.de_xz[2]) >= 0;
+	yz = (glm::dot(tri.ne_yz[0], glm::vec2(vMinAABB.y, vMinAABB.z)) + tri.de_yz[0]) >= 0 &&
+		(glm::dot(tri.ne_yz[1], glm::vec2(vMinAABB.y, vMinAABB.z)) + tri.de_yz[1]) >= 0 &&
+		(glm::dot(tri.ne_yz[2], glm::vec2(vMinAABB.y, vMinAABB.z)) + tri.de_yz[2]) >= 0;
+	return xy || xz || yz;
+}
+
 __global__ void VoxelizationKernel(Voxel* voxelList, CudaMesh mesh, const unsigned short voxelDim) {
+#ifdef TRIANGLE_PER_THREAD
 	const unsigned idx = blockDim.x * blockIdx.x + threadIdx.x;
 	if (idx >= mesh.triNum) return;
+	const Triangle tri = mesh.d_tri[idx];
+	const glm::vec3 v0(mesh.d_v[3 * tri.i0], mesh.d_v[3 * tri.i0 + 1], mesh.d_v[3 * tri.i0 + 2]),
+					v1(mesh.d_v[3 * tri.i1], mesh.d_v[3 * tri.i1 + 1], mesh.d_v[3 * tri.i1 + 2]),
+					v2(mesh.d_v[3 * tri.i2], mesh.d_v[3 * tri.i2 + 1], mesh.d_v[3 * tri.i2 + 2]),
+					n0(mesh.d_n[3 * tri.i0], mesh.d_n[3 * tri.i0 + 1], mesh.d_n[3 * tri.i0 + 2]),
+					n1(mesh.d_n[3 * tri.i1], mesh.d_n[3 * tri.i1 + 1], mesh.d_n[3 * tri.i1 + 2]),
+					n2(mesh.d_n[3 * tri.i2], mesh.d_n[3 * tri.i2 + 1], mesh.d_n[3 * tri.i2 + 2]);
+	const float vDelta = mesh.delta / float(voxelDim);
 
+	glm::vec3 maxAABB(glm::max(v0, glm::max(v1, v2))), minAABB(glm::min(v0, glm::min(v1, v2)));
+	glm::uvec3 minVoxel = GetVoxelIndex(minAABB, mesh.minAABB, mesh.delta),
+			   maxVoxel = GetVoxelIndex(maxAABB, mesh.minAABB, mesh.delta);
+	printf("maxVoxel:(%i, %i, %i)\n", maxVoxel.x, maxVoxel.y, maxVoxel.z);
+	for(uint i = minVoxel.x; i <= maxVoxel.x; i++)
+		for (uint j = minVoxel.y; j <= maxVoxel.y; j++)
+			for (uint k = minVoxel.z; k <= maxVoxel.z; k++) {
+				glm::vec3 voxelPos = GetVoxelWorldPos(glm::uvec3(i, j, k), mesh.minAABB, mesh.delta);
+				if (VoxelTriangleIntersection(tri, voxelPos - vDelta/2.f)) {
+					glm::vec3 uvw = WorldSpaceInterpolation(v0, v1, v2, voxelPos);
+					Voxel voxel;
+					glm::vec3 color(1, 1, 0), normal = glm::normalize(uvw[0] * n0 + uvw[1] * n1 + uvw[2] * n2);
+					voxel.SetInfo(color, normal);
+					voxelList[ToArrayIdx(glm::uvec3(i, j, k))] = voxel;
+				}
+			}
 
+#endif // TRIANGLE_PER_THREAD
 }
+
 __global__ void PreProcessTriangleKernel(CudaMesh mesh, const unsigned short voxelDim) {
 	const unsigned idx = blockDim.x * blockIdx.x + threadIdx.x;
 	if (idx >= mesh.triNum) return;
@@ -85,18 +139,16 @@ __global__ void PreProcessTriangleKernel(CudaMesh mesh, const unsigned short vox
 	}
 	//Write to global memory
 	mesh.d_tri[idx] = tri;
-	printf("normal from thread %i : (%f, %f, %f)\n", idx, tri.n.x, tri.n.y, tri.n.z);
+
 }
 
-void Voxelization(Mesh& mesh, Voxel* d_voxel)
+void Voxelization(CudaMesh& cuMesh, Voxel* d_voxel)
 {
-	CudaMesh cuMesh;
-	mesh.UploatToDevice(cuMesh);
 	cudaError_t cudaStatus;
 	//PreProcess Triangle
 	cudaStatus = cudaMalloc((void**)&cuMesh.d_tri, cuMesh.triNum * sizeof(Triangle));
 	if (cudaStatus != cudaSuccess) printf("d_tri cudaMalloc Failed\n");
-	const unsigned int blockDim = 256, gridDim = cuMesh.triNum / blockDim + 1;
+	dim3 blockDim = 256, gridDim = cuMesh.triNum / blockDim.x + 1;
 	PreProcessTriangleKernel <<< gridDim, blockDim >>> (cuMesh, voxelDim);
 	cudaStatus = cudaGetLastError();
 	if (cudaStatus != cudaSuccess) printf("PreprocessTriangle Launch Kernel Failed\n");
@@ -111,12 +163,21 @@ void Voxelization(Mesh& mesh, Voxel* d_voxel)
 
 	cudaStatus = cudaMalloc((void**)&d_voxel, voxelSize);
 	if (cudaStatus != cudaSuccess) printf("d_voxel cudaMalloc Failed\n");
-
-#ifdef TRIANGLE_PER_THREAD
 	
+#ifndef TRIANGLE_PER_THREAD
+	blockDim = dim3(8, 8, 8), gridDim = dim3(voxelDim / blockDim.x, voxelDim / blockDim.y, voxelDim / blockDim.z);
+#endif // TRIANGLE_PER_THREAD	
 	VoxelizationKernel << <gridDim, blockDim >> > (d_voxel, cuMesh, voxelDim);
 	cudaStatus = cudaGetLastError();
 	if (cudaStatus != cudaSuccess) printf("cuda Launch Kernel Failed\n");
-#endif // TRIANGLE_PER_THREAD
 
+	cudaStatus = cudaDeviceSynchronize();
+	if (cudaStatus != cudaSuccess) printf("cudaDeviceSynchronize Failed\n");
+	//Free CudaMesh
+	cudaStatus = cudaFree(cuMesh.d_v);
+	if (cudaStatus != cudaSuccess) printf("d_v cudaFree Failed, error: %s\n", cudaGetErrorString(cudaStatus));
+	cudaStatus = cudaFree(cuMesh.d_n);
+	if (cudaStatus != cudaSuccess) printf("d_n cudaFree Failed, error: %s\n", cudaGetErrorString(cudaStatus));
+	cudaStatus = cudaFree(cuMesh.d_tri);
+	if (cudaStatus != cudaSuccess) printf("d_tri cudaFree Failed, error: %s\n", cudaGetErrorString(cudaStatus));
 }

@@ -1,6 +1,7 @@
 #pragma once
 #include <ObjLoad.h>
 #include <string>
+#include <GL/glew.h>
 #define GLM_FORCE_CUDA
 #include <glm/glm.hpp>
 
@@ -23,10 +24,17 @@ class Mesh
 {
 public:
 	obj::Model data;
+	//transform matrix
+	glm::mat4 M;
 
 	Mesh(const std::string& path);
 	~Mesh() {}
 
 	void UploatToDevice(CudaMesh& cuMesh);
+	void CreateVao();
+	void Draw();
+private:
+	GLuint vao;
+
 };
 

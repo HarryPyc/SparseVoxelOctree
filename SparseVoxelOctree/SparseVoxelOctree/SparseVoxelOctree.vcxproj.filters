@@ -10,17 +10,49 @@
     <Filter Include="Source Files">
       <UniqueIdentifier>{8f8070f1-ebe3-4a2c-b3f0-2d23efcdd6a6}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Shader">
+      <UniqueIdentifier>{ba42a15e-d555-4a6e-a9a8-e061bae2816b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ExternalLibs">
+      <UniqueIdentifier>{da593435-d448-4f79-9b68-a89a9c8284e4}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Mesh.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Voxel.cuh" />
+    <ClInclude Include="Camera.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="FrameBuffer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\InitShader.h">
+      <Filter>ExternalLibs</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Mesh.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="Camera.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="FrameBuffer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="include\InitShader.cpp">
+      <Filter>ExternalLibs</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="shader\fs.frag">
+      <Filter>Shader</Filter>
+    </None>
+    <None Include="shader\vs.vert">
+      <Filter>Shader</Filter>
+    </None>
   </ItemGroup>
 </Project>

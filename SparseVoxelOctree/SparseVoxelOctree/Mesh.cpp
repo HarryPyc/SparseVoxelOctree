@@ -35,4 +35,36 @@ void Mesh::UploatToDevice(CudaMesh &cuMesh)
 	if (cudaStatus != cudaSuccess) printf("d_idx cudaMemcpy Failed\n");
 }
 
+void Mesh::CreateVao()
+{
+	glGenVertexArrays(1, &vao);
+	glBindVertexArray(vao);
+
+	GLuint vbo;
+	glGenBuffers(1, &vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(float) * data.vertex.size(), data.vertex.data(), GL_STATIC_DRAW);
+
+	GLuint ebo;
+	glGenBuffers(1, &ebo);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned short) * data.faces["default"].size(), data.faces["default"].data(), GL_STATIC_DRAW);
+
+	const GLuint pos_loc = 0;
+
+	glEnableVertexAttribArray(pos_loc);
+
+	glVertexAttribPointer(pos_loc, 3, GL_FLOAT, false, 0, 0);
+	glBindVertexArray(0);
+
+}
+
+void Mesh::Draw()
+{
+	glBindVertexArray(vao);
+	glDrawElements(GL_TRIANGLES, data.faces["default"].size(), GL_UNSIGNED_SHORT, 0);
+}
+
+
+
 
