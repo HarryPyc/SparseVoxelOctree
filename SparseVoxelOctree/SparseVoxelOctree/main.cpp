@@ -2,6 +2,7 @@
 #include "cuda_runtime.h"
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
+#include "cuda_gl_interop.h"
 #include <glm/gtx/transform.hpp>
 #include <stdio.h>
 #include <InitShader.h>
@@ -13,8 +14,9 @@
 const int WINDOW_WIDTH = 1280, WINDOW_HEIGHT = 720;
 Voxel* d_voxel = NULL;
 GLFWwindow* window;
-GLuint shader;
-Camera cam(WINDOW_WIDTH, WINDOW_HEIGHT, 3.1415926f / 3.f, glm::vec3(3, 3, 3));
+GLuint shader, pbo, textureID;
+cudaGraphicsResource_t frontCuda, backCuda, pboCuda;
+Camera cam(WINDOW_WIDTH, WINDOW_HEIGHT, 3.1415926f / 3.f, glm::vec3(0, 0, 2));
 FrameBuffer *front, *back;
 Mesh mesh("asset/model/bunny.obj"), Cube("asset/model/cube.obj");
 CudaMesh cuMesh;
@@ -46,6 +48,19 @@ void initOpenGL() {
 		std::cout << "GLEW initialization failed.\n";
 	}
 	glfwSwapInterval(1);
+
+	glGenBuffers(1, &pbo);
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+	glBufferData(GL_PIXEL_UNPACK_BUFFER, WINDOW_WIDTH * WINDOW_HEIGHT * sizeof(unsigned int), 0, GL_DYNAMIC_COPY);
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+
+	glGenTextures(1, &textureID);
+	glBindTexture(GL_TEXTURE_2D, textureID);
+
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, WINDOW_WIDTH, WINDOW_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 }
 void init() {
 	mesh.UploatToDevice(cuMesh);
@@ -57,10 +72,36 @@ void init() {
 	glUniformMatrix4fv(glGetUniformLocation(shader, "M"), 1, false, &Cube.M[0][0]);
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_CULL_FACE);
+	//Bind opengl buffer to cuda
+	front->BindToDevice(frontCuda);
+	back->BindToDevice(backCuda);
+	if (cudaGraphicsGLRegisterBuffer(&pboCuda, pbo, cudaGraphicsRegisterFlagsNone) != cudaSuccess)
+		printf("cuda bind pbo failed\n");
 
+}
+void display() {
+	glUseProgram(0);
+	glEnable(GL_TEXTURE_2D);
+
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+
+	glBindTexture(GL_TEXTURE_2D, textureID);
+
+	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT,
+		GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+	
+
+	glBegin(GL_QUADS);
+	glTexCoord2f(0.0f, 0.0f); glVertex3f(-1.0f, -1.0f, 0.0f);
+	glTexCoord2f(0.0f, 1.0f); glVertex3f(-1.0f, 1.0f, 0.0f);
+	glTexCoord2f(1.0f, 1.0f); glVertex3f(1.0f, 1.0f, 0.0f);
+	glTexCoord2f(1.0f, 0.0f); glVertex3f(1.0f, -1.0f, 0.0f);
+	glEnd();
 }
 
 void RayMarching() {
+	glUseProgram(shader);
+
 	glCullFace(GL_BACK);
 	front->Enable();
 	front->DrawBuffer();
@@ -72,7 +113,27 @@ void RayMarching() {
 	back->DrawBuffer();
 	Cube.Draw();
 	back->DisAble();
+	//cuda map resources
+	cudaGraphicsResource_t resources[3] = { frontCuda, backCuda, pboCuda };
+	if (cudaGraphicsMapResources(3, resources) != cudaSuccess)
+		printf("cuda map resources failed\n");
+	cudaArray_t frontArray, backArray;
+	unsigned int* d_pbo;
+	if (cudaGraphicsSubResourceGetMappedArray(&frontArray, frontCuda, 0, 0) != cudaSuccess)
+		printf("d_front map pointer failed\n");
+	if (cudaGraphicsSubResourceGetMappedArray(&backArray, backCuda, 0, 0) != cudaSuccess)
+		printf("d_back map pointer failed\n");
 
+	//bind pixel buffer
+	size_t numBytes = WINDOW_WIDTH * WINDOW_HEIGHT * sizeof(unsigned int);
+	if (cudaGraphicsResourceGetMappedPointer((void**)&d_pbo, &numBytes, pboCuda) != cudaSuccess)
+		printf("d_pbo map pointer failed\n");
+	//run cuda kernel
+	RunRayMarchingKernel(d_pbo, frontArray, backArray, d_voxel, cuMesh, WINDOW_WIDTH, WINDOW_HEIGHT);
+
+	//unmap resource
+	if (cudaGraphicsUnmapResources(3, resources) != cudaSuccess)
+		printf("cuda unmap resources failed\n");
 }
 
 int main() {
@@ -81,9 +142,12 @@ int main() {
 		return 0;
 	}*/
 	initOpenGL();
-	init();
 	glfwSetErrorCallback(error_callback);
 	printGlInfo();
+	init();
+	initCudaTexture();
+
+	Voxelization(cuMesh, d_voxel);
 
 	//Display
 	while (!glfwWindowShouldClose(window)) {
@@ -92,14 +156,14 @@ int main() {
 
 		cam.upload(shader);
 		RayMarching();
-		//Cube.Draw();
+		display();
 
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 	}
 
 	delete front, delete back;
-	//cudaFree(d_voxel);
+	cudaFree(d_voxel);
 	glfwDestroyWindow(window);
 	glfwTerminate();
 	return 0;

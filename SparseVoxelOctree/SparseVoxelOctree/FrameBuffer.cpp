@@ -1,5 +1,5 @@
 #include "FrameBuffer.h"
-
+#include <stdio.h>
 FrameBuffer::FrameBuffer(unsigned int w, unsigned int h)
 {
 
@@ -10,7 +10,10 @@ FrameBuffer::FrameBuffer(unsigned int w, unsigned int h)
 	//texture
 	glGenTextures(1, &textureID);
 	glBindTexture(GL_TEXTURE_2D, textureID);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, w, h, 0, GL_RGBA, GL_FLOAT, 0);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, w, h, 0, GL_RGBA, GL_FLOAT, NULL);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
 	glBindTexture(GL_TEXTURE_2D, 0);
 	//Frame Buffer Object
 	glGenFramebuffers(1, &fbo);
@@ -22,6 +25,12 @@ FrameBuffer::FrameBuffer(unsigned int w, unsigned int h)
 
 FrameBuffer::~FrameBuffer()
 {
+}
+
+void FrameBuffer::BindToDevice(cudaGraphicsResource_t& resource)
+{
+	if (cudaGraphicsGLRegisterImage(&resource, textureID, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsReadOnly) != cudaSuccess)
+		printf("cuda bind texture failed\n");
 }
 
 void FrameBuffer::Enable()
