@@ -5,13 +5,13 @@
 class Camera
 {
 public:
-	glm::vec3 pos, dir, up;
+	glm::vec3 pos, target, up;
 	float w, h, hfov;
 
-	glm::vec3 getTarget() { return pos + dir; }
 
 	void UpdatePerspectiveMatrix();
 	void UpdateViewMatrix();
+	
 
 	void upload(GLuint program);
 

@@ -1,4 +1,4 @@
-
+#define NOMINMAX
 #include "cuda_runtime.h"
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -16,10 +16,12 @@ Voxel* d_voxel = NULL;
 GLFWwindow* window;
 GLuint shader, pbo, textureID;
 cudaGraphicsResource_t frontCuda, backCuda, pboCuda;
-Camera cam(WINDOW_WIDTH, WINDOW_HEIGHT, 3.1415926f / 3.f, glm::vec3(0, 0, 2));
+Camera cam(WINDOW_WIDTH, WINDOW_HEIGHT, 3.1415926f / 3.f, glm::vec3(0, 1.5, 1.5));
 FrameBuffer *front, *back;
-Mesh mesh("asset/model/bunny.obj"), Cube("asset/model/cube.obj");
-CudaMesh cuMesh;
+//870K triangle dragon
+Mesh mesh("asset/model/dragon.obj"), Cube("asset/model/cube.obj");
+CudaMesh cuMesh; 
+VoxelizationInfo Info;
 
 void error_callback(int error, const char* description)
 {
@@ -62,10 +64,24 @@ void initOpenGL() {
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 }
+void initInfo() {
+	//Reconstruct AABB
+	glm::vec3 _minAABB = glm::vec3(mesh.data.min[0], mesh.data.min[1], mesh.data.min[2]);
+	glm::vec3 _maxAABB = glm::vec3(mesh.data.max[0], mesh.data.max[1], mesh.data.max[2]);
+	glm::vec3 l = _maxAABB - _minAABB;
+	Info.delta = glm::max(l.x, glm::max(l.y, l.z));
+	Info.minAABB = (_minAABB + _maxAABB) / 2.f - Info.delta / 2.f;
+	Info.camPos = cam.pos;
+	Info.lightPos = glm::vec3(0.f, 2.f, 2.f);
+	Info.ka = 0.2f, Info.kd = 1.0f, Info.ks = 1.0f;
+	Info.alpha = 5.f;
+	Info.Dim = voxelDim;
+	uploadConstant(Info);
+}
 void init() {
 	mesh.UploatToDevice(cuMesh);
 	Cube.CreateVao();
-	Cube.M = glm::translate(cuMesh.minAABB + cuMesh.delta/2.f) * glm::scale(glm::vec3(cuMesh.delta / 2.f));
+	Cube.M = glm::translate(Info.minAABB + Info.delta/2.f) * glm::scale(glm::vec3(Info.delta / 2.f));
 	front = new FrameBuffer(WINDOW_WIDTH, WINDOW_HEIGHT), back = new FrameBuffer(WINDOW_WIDTH, WINDOW_HEIGHT);
 	shader = InitShader("shader/vs.vert", "shader/fs.frag");
 	glUseProgram(shader);
@@ -84,9 +100,7 @@ void display() {
 	glEnable(GL_TEXTURE_2D);
 
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
-
 	glBindTexture(GL_TEXTURE_2D, textureID);
-
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT,
 		GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 	
@@ -97,10 +111,12 @@ void display() {
 	glTexCoord2f(1.0f, 1.0f); glVertex3f(1.0f, 1.0f, 0.0f);
 	glTexCoord2f(1.0f, 0.0f); glVertex3f(1.0f, -1.0f, 0.0f);
 	glEnd();
+
+	glDisable(GL_TEXTURE_2D);
 }
 
 void RayMarching() {
-	glUseProgram(shader);
+
 
 	glCullFace(GL_BACK);
 	front->Enable();
@@ -136,16 +152,20 @@ void RayMarching() {
 		printf("cuda unmap resources failed\n");
 }
 
+
+
 int main() {
 	/*if (cudaSetDevice(0) != cudaSuccess) {
 		printf("cudaSetDevice Failed");
 		return 0;
 	}*/
+
 	initOpenGL();
 	glfwSetErrorCallback(error_callback);
 	printGlInfo();
+	initInfo();
 	init();
-	initCudaTexture();
+	initCudaVoxelization();
 
 	Voxelization(cuMesh, d_voxel);
 
@@ -154,6 +174,12 @@ int main() {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
 
+		cam.pos = glm::vec3(glm::rotate(glm::radians(1.f), cam.up) * glm::vec4(cam.pos, 1.f));
+		cam.UpdateViewMatrix();
+		Info.camPos = cam.pos;
+		uploadConstant(Info);
+
+		glUseProgram(shader);
 		cam.upload(shader);
 		RayMarching();
 		display();

@@ -42,7 +42,7 @@ namespace obj {
         std::vector<float> texCoord; //< 2 * N entries
         std::vector<float> normal; //< 3 * N entries
         float min[3], max[3];
-        std::map<std::string, std::vector<unsigned short> > faces; //< assume triangels and uniform indexing
+        std::map<std::string, std::vector<unsigned int> > faces; //< assume triangels and uniform indexing
     };
 
     struct ObjModel {
@@ -230,10 +230,10 @@ namespace obj {
         for (std::map<std::string, ObjModel::FaceList>::const_iterator g = obj.faces.begin(); g != obj.faces.end(); ++g) {
             const std::string& name = g->first;
             const ObjModel::FaceList& fl = g->second;
-            std::vector<unsigned short>& v = model.faces[g->first];
+            std::vector<unsigned int>& v = model.faces[g->first];
             v.reserve(fl.first.size());
             for (std::vector<ObjModel::FaceVertex>::const_iterator f = fl.first.begin(); f != fl.first.end(); ++f) {
-                const unsigned short index = std::distance(unique.begin(), std::lower_bound(unique.begin(), unique.end(), *f));
+                const unsigned int index = std::distance(unique.begin(), std::lower_bound(unique.begin(), unique.end(), *f));
                 v.push_back(index);
             }
         }
@@ -287,7 +287,7 @@ namespace obj {
         }
         if (!m.faces.empty()) {
             out << "faces\t";
-            for (std::map<std::string, std::vector<unsigned short> >::const_iterator g = m.faces.begin(); g != m.faces.end(); ++g) {
+            for (std::map<std::string, std::vector<unsigned int> >::const_iterator g = m.faces.begin(); g != m.faces.end(); ++g) {
                 out << g->first << " ";
             }
             out << "\n";

@@ -8,15 +8,9 @@ Mesh::Mesh(const std::string& path)
 void Mesh::UploatToDevice(CudaMesh &cuMesh)
 {
 	cuMesh.triNum = data.faces["default"].size() / 3;
-	//Reconstruct AABB
-	glm::vec3 _minAABB = glm::vec3(data.min[0], data.min[1], data.min[2]);
-	glm::vec3 _maxAABB = glm::vec3(data.max[0], data.max[1], data.max[2]);
-	glm::vec3 l = _maxAABB - _minAABB;
-	cuMesh.delta = glm::max(l.x, glm::max(l.y, l.z));
-	cuMesh.minAABB = (_minAABB + _maxAABB) / 2.f - cuMesh.delta / 2.f;
 
 	size_t vert_size = data.vertex.size() * sizeof(float), normal_size = data.normal.size() * sizeof(float),
-		index_size = data.faces["default"].size() * sizeof(unsigned short);
+		index_size = data.faces["default"].size() * sizeof(unsigned );
 	cudaError_t cudaStatus;
 	//Copy data to device
 	cudaStatus = cudaMalloc((void**)&cuMesh.d_v, vert_size);
@@ -48,7 +42,7 @@ void Mesh::CreateVao()
 	GLuint ebo;
 	glGenBuffers(1, &ebo);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned short) * data.faces["default"].size(), data.faces["default"].data(), GL_STATIC_DRAW);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned) * data.faces["default"].size(), data.faces["default"].data(), GL_STATIC_DRAW);
 
 	const GLuint pos_loc = 0;
 
@@ -62,7 +56,7 @@ void Mesh::CreateVao()
 void Mesh::Draw()
 {
 	glBindVertexArray(vao);
-	glDrawElements(GL_TRIANGLES, data.faces["default"].size(), GL_UNSIGNED_SHORT, 0);
+	glDrawElements(GL_TRIANGLES, data.faces["default"].size(), GL_UNSIGNED_INT, 0);
 }
 
 

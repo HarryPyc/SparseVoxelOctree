@@ -10,7 +10,7 @@ void Camera::UpdatePerspectiveMatrix()
 
 void Camera::UpdateViewMatrix()
 {
-	V = glm::lookAt(pos,getTarget(),up);
+	V = glm::lookAt(pos,target,up);
 }
 
 void Camera::upload(GLuint program)
@@ -29,9 +29,8 @@ void Camera::upload(GLuint program)
 }
 
 Camera::Camera(float width, float height, float _hfov, glm::vec3 _pos, glm::vec3 _target, glm::vec3 _up) :
-    pos(_pos), up(_up), w(width), h(height), hfov(_hfov)
+    pos(_pos), up(_up), target(_target), w(width), h(height), hfov(_hfov)
 {
-    dir = glm::normalize(_target - pos);
     UpdatePerspectiveMatrix();
     UpdateViewMatrix();
 }
