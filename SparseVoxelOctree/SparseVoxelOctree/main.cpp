@@ -5,6 +5,7 @@
 #include "cuda_gl_interop.h"
 #include <glm/gtx/transform.hpp>
 #include <stdio.h>
+#include <time.h>
 #include <InitShader.h>
 #include "Mesh.h"
 #include "Voxel.cuh"
@@ -69,6 +70,7 @@ void initInfo() {
 	glm::vec3 _minAABB = glm::vec3(mesh.data.min[0], mesh.data.min[1], mesh.data.min[2]);
 	glm::vec3 _maxAABB = glm::vec3(mesh.data.max[0], mesh.data.max[1], mesh.data.max[2]);
 	glm::vec3 l = _maxAABB - _minAABB;
+	printf("Mesh AABB size: %f\n", glm::length(_maxAABB - _minAABB));
 	Info.delta = glm::max(l.x, glm::max(l.y, l.z));
 	Info.minAABB = (_minAABB + _maxAABB) / 2.f - Info.delta / 2.f;
 	Info.camPos = cam.pos;
@@ -168,12 +170,12 @@ int main() {
 	initCudaVoxelization();
 
 	Voxelization(cuMesh, d_voxel);
-
+	clock_t t;
 	//Display
 	while (!glfwWindowShouldClose(window)) {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
-
+		t = clock();
 		cam.pos = glm::vec3(glm::rotate(glm::radians(1.f), cam.up) * glm::vec4(cam.pos, 1.f));
 		cam.UpdateViewMatrix();
 		Info.camPos = cam.pos;
@@ -183,7 +185,10 @@ int main() {
 		cam.upload(shader);
 		RayMarching();
 		display();
-
+		t = clock() - t;
+		float fps = 1.f / ((float)t / CLOCKS_PER_SEC);
+		std::string title = "Fps: " + std::to_string(fps);
+		glfwSetWindowTitle(window, title.c_str());
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 	}

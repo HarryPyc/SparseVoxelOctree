@@ -1,6 +1,7 @@
 #include "Voxel.cuh"
 #include "Mesh.h"
 #include "device_launch_parameters.h"
+#include <time.h>
 
 typedef unsigned int uint;
 texture<float4, 2, cudaReadModeElementType> frontTex, backTex;
@@ -143,20 +144,17 @@ __global__ void VoxelizationKernel(Voxel* voxelList, CudaMesh mesh) {
 				if (VoxelTriangleIntersection(tri, voxelPos - vDelta/2.f)) {
 					glm::vec3 minVoxelAABB = voxelPos - vDelta / 2.f, maxVoxelAABB = minVoxelAABB + vDelta;
 					//Voxel-Triangle AABB test
-					if ((minAABB.x <= maxVoxelAABB.x && maxAABB.x >= minVoxelAABB.x) &&
-						(minAABB.y <= maxVoxelAABB.y && maxAABB.y >= minVoxelAABB.y) &&
-						(minAABB.z <= maxVoxelAABB.z && maxAABB.z >= minVoxelAABB.z)) {
 
-						glm::vec3 uvw = WorldSpaceInterpolation(v0, v1, v2, voxelPos);
+					glm::vec3 uvw = WorldSpaceInterpolation(v0, v1, v2, voxelPos);
 
-						glm::vec3 color(1, 1, 0), normal = glm::normalize(uvw[0] * n0 + uvw[1] * n1 + uvw[2] * n2);
-						size_t arrayIdx = ToArrayIdx(glm::uvec3(i, j, k));
-						//atomic average
-						//while (!atomicOr(&voxelList[arrayIdx].n, 1 << 31U) >> 31U) {
-						//	//wait
-						//}
-						voxelList[arrayIdx].SetInfo(color, normal);
-					}
+					glm::vec3 color(1, 1, 0), normal = glm::normalize(uvw[0] * n0 + uvw[1] * n1 + uvw[2] * n2);
+					size_t arrayIdx = ToArrayIdx(glm::uvec3(i, j, k));
+					//atomic average
+					//while (!atomicOr(&voxelList[arrayIdx].n, 1 << 31U) >> 31U) {
+					//	//wait
+					//}
+					voxelList[arrayIdx].SetInfo(color, normal);
+
 				}
 
 			}
@@ -252,12 +250,18 @@ void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel)
 #ifndef TRIANGLE_PER_THREAD
 	blockDim = dim3(8, 8, 8), gridDim = dim3(voxelDim / blockDim.x, voxelDim / blockDim.y, voxelDim / blockDim.z);
 #endif // TRIANGLE_PER_THREAD	
+	clock_t t;
+
+	t = clock();
 	VoxelizationKernel << <gridDim, blockDim >> > (d_voxel, cuMesh);
 	cudaStatus = cudaGetLastError();
 	if (cudaStatus != cudaSuccess) printf("cuda Launch Kernel Failed\n");
-
 	cudaStatus = cudaDeviceSynchronize();
 	if (cudaStatus != cudaSuccess) printf("cudaDeviceSynchronize Failed\n");
+	t = clock() - t;
+	printf("Voxelization finished, time : %f", (float)t / CLOCKS_PER_SEC);	
+
+
 	//Free CudaMesh
 	cudaStatus = cudaFree(cuMesh.d_v);
 	if (cudaStatus != cudaSuccess) printf("d_v cudaFree Failed, error: %s\n", cudaGetErrorString(cudaStatus));
@@ -266,7 +270,6 @@ void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel)
 	cudaStatus = cudaFree(cuMesh.d_tri);
 	if (cudaStatus != cudaSuccess) printf("d_tri cudaFree Failed, error: %s\n", cudaGetErrorString(cudaStatus));
 
-	printf("voxelization finished\n");
 }
 
 void RunRayMarchingKernel(unsigned int* d_pbo, cudaArray_t front, cudaArray_t back, Voxel* d_voxel, CudaMesh cuMesh, const unsigned w, const unsigned h)
