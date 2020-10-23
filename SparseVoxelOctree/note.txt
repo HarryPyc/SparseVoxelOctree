@@ -1,0 +1,3 @@
+Prior to the 5.0 release, CUDA did not support separate compilation, so CUDA code could not call device functions or access variables across files. Such compilation is referred to as whole program compilation. We have always supported the separate compilation of host code, it was just the device CUDA code that needed to all be within one file.
+
+cuda support dynamic allocation in kernel

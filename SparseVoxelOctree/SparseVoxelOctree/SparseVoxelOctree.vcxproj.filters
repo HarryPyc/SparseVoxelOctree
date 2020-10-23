@@ -2,6 +2,7 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <CudaCompile Include="Voxel.cu" />
+    <CudaCompile Include="Octree.cu" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Header Files">
@@ -31,6 +32,7 @@
     <ClInclude Include="include\InitShader.h">
       <Filter>ExternalLibs</Filter>
     </ClInclude>
+    <ClInclude Include="Octree.cuh" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Mesh.cpp">

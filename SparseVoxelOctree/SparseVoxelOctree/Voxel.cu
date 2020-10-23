@@ -2,22 +2,10 @@
 #include "Mesh.h"
 #include "device_launch_parameters.h"
 #include <time.h>
-
-typedef unsigned int uint;
-texture<float4, 2, cudaReadModeElementType> frontTex, backTex;
-
-
-__constant__ VoxelizationInfo d_Info;
-
-__device__  glm::vec4 ConvUintToVec4(unsigned int val)
-{
-	glm::vec4 res(float((val & 0x000000FF)), float((val & 0x0000FF00) >> 8U), float((val & 0x00FF0000) >> 16U), float((val & 0xFF000000) >> 24U));
-	return res / 255.f;
-}
-__device__  unsigned int ConvVec4ToUint(glm::vec4 val) {
-	val *= 255.f;
-	return (uint(val.w) & 0x000000FF) << 24U | (uint(val.z) & 0x000000FF) << 16U | (uint(val.y) & 0x000000FF) << 8U | (uint(val.x) & 0x000000FF);
-}
+extern VoxelizationInfo Info;
+extern __constant__ VoxelizationInfo d_Info;
+//texture<float4, 2, cudaReadModeElementType> frontTex, backTex;
+__device__ uint voxelCounter;
 
  __device__ Voxel::Voxel()
 {
@@ -36,29 +24,14 @@ __device__  unsigned int ConvVec4ToUint(glm::vec4 val) {
 }
 
  __device__ void Voxel::SetInfo(glm::vec3 color, glm::vec3 normal) {
-	uint counter = this->GetCounter();
-	glm::vec3 oldColor, oldNormal;
-	this->GetInfo(oldColor, oldNormal);
-	color = (oldColor * float(counter) + color) / float(counter + 1);
-	normal = (oldNormal * float(counter) + normal) / float(counter + 1);
+
 	color *= 255.f;
 	c = ((uint(color.z) & 0x000000FF) << 16U | (uint(color.y) & 0x000000FF) << 8U | (uint(color.x) & 0x000000FF));
 	normal = (normal + 1.f) / 2.f * 255.f;
 	n = ((uint(normal.z) & 0x000000FF) << 16U | (uint(normal.y) & 0x000000FF) << 8U | (uint(normal.x) & 0x000000FF));
-	this->SetCounter(counter + 1);
-	//End writing
-	n &= (0xFFFFFFFF >> 1U);
 }
 
-__device__ unsigned int Voxel::GetCounter()
-{
-	return c & 0xFF000000 >> 24U;
-}
 
-__device__ void Voxel::SetCounter(unsigned int counter)
-{
-	c |= counter & 0x000000FF << 24U;
-}
 
 __device__ glm::vec3 Voxel::PhongLighting(glm::vec3 pos)
 {
@@ -78,7 +51,7 @@ __device__ glm::vec3 Voxel::PhongLighting(glm::vec3 pos)
 
 //transfer 3D index to 1D array index
 __device__ inline size_t ToArrayIdx(glm::uvec3 coord) {
-	return coord.z + coord.y * d_Info.Dim + coord.x * d_Info.Dim * d_Info.Dim;
+	return coord.x + coord.y * d_Info.Dim + coord.z * d_Info.Dim * d_Info.Dim;
 }
 //Get voxel index for current position
 __device__ inline glm::uvec3 GetVoxelIndex(glm::vec3 pos) {
@@ -118,8 +91,8 @@ __device__ inline bool VoxelTriangleIntersection(Triangle tri, glm::vec3 vMinAAB
 	return xy || xz || yz;
 }
 
-__global__ void VoxelizationKernel(Voxel* voxelList, CudaMesh mesh) {
-#ifdef TRIANGLE_PER_THREAD
+__global__ void VoxelizationKernel(Voxel* voxelList, uint* voxelIdxList, CudaMesh mesh) {
+
 	const unsigned idx = blockDim.x * blockIdx.x + threadIdx.x;
 	if (idx >= mesh.triNum) return;
 	const Triangle tri = mesh.d_tri[idx];
@@ -148,18 +121,16 @@ __global__ void VoxelizationKernel(Voxel* voxelList, CudaMesh mesh) {
 					glm::vec3 uvw = WorldSpaceInterpolation(v0, v1, v2, voxelPos);
 
 					glm::vec3 color(1, 1, 0), normal = glm::normalize(uvw[0] * n0 + uvw[1] * n1 + uvw[2] * n2);
-					size_t arrayIdx = ToArrayIdx(glm::uvec3(i, j, k));
-					//atomic average
-					//while (!atomicOr(&voxelList[arrayIdx].n, 1 << 31U) >> 31U) {
-					//	//wait
-					//}
+					size_t arrayIdx = atomicAdd(&voxelCounter, 1);
+
 					voxelList[arrayIdx].SetInfo(color, normal);
+					voxelIdxList[arrayIdx] = ConvUvec3ToUint(glm::uvec3(i, j, k));
 
 				}
 
 			}
 
-#endif // TRIANGLE_PER_THREAD
+
 }
 
 __global__ void PreProcessTriangleKernel(CudaMesh mesh) {
@@ -195,40 +166,56 @@ __global__ void PreProcessTriangleKernel(CudaMesh mesh) {
 
 }
 
-__global__ void RayMarchingKernel(unsigned int* d_pbo, Voxel* voxelList, CudaMesh mesh, const unsigned int w, const unsigned int h) {
-	const unsigned int x = blockDim.x * blockIdx.x + threadIdx.x,
-		y = blockDim.y * blockIdx.y + threadIdx.y;
-	if (x >= w || y >= h) return;
-	d_pbo[y * w + x] = 0;
-	const float u = float(x) / float(w), v = float(y) / float(h);
-	float4 frontSample = tex2D(frontTex, u, v), backSample = tex2D(backTex, u, v);
-	if (frontSample.w < 1.f) return;
+//__global__ void RayMarchingKernel(unsigned int* d_pbo, Voxel* voxelList,  const unsigned int w, const unsigned int h) {
+//	const unsigned int x = blockDim.x * blockIdx.x + threadIdx.x,
+//		y = blockDim.y * blockIdx.y + threadIdx.y;
+//	if (x >= w || y >= h) return;
+//	d_pbo[y * w + x] = 0;
+//	const float u = float(x) / float(w), v = float(y) / float(h);
+//	float4 frontSample = tex2D(frontTex, u, v), backSample = tex2D(backTex, u, v);
+//	if (frontSample.w < 1.f) return;
+//
+//	glm::vec3 frontPos(frontSample.x, frontSample.y, frontSample.z),
+//		backPos(backSample.x, backSample.y, backSample.z);
+//	glm::vec3 dir = backPos - frontPos;
+//	const float stepSize = d_Info.delta / d_Info.Dim /2.f , dirLength = glm::length(dir);
+//	const unsigned maxStep = dirLength / stepSize;
+//	dir /= dirLength;//Normalize
+//	glm::vec3 curPos = frontPos;
+//	glm::uvec3 voxelIdx;
+//	//Trace voxels
+//	for (int i = 0; i < maxStep; i++) {
+//		
+//		voxelIdx = GetVoxelIndex(curPos);
+//		Voxel voxel = voxelList[ToArrayIdx(voxelIdx)];
+//		if (!voxel.empty()) {
+//			glm::vec3 voxelPos = GetVoxelWorldPos(voxelIdx);
+//			d_pbo[y * w + x] = ConvVec4ToUint(glm::vec4(voxel.PhongLighting(voxelPos), 1.f));
+//			break;
+//		}
+//		curPos += dir * stepSize;
+//	}
+//
+//}
 
-	glm::vec3 frontPos(frontSample.x, frontSample.y, frontSample.z),
-		backPos(backSample.x, backSample.y, backSample.z);
-	glm::vec3 dir = backPos - frontPos;
-	const float stepSize = d_Info.delta / d_Info.Dim /2.f , dirLength = glm::length(dir);
-	const unsigned maxStep = dirLength / stepSize;
-	dir /= dirLength;//Normalize
-	glm::vec3 curPos = frontPos;
-	glm::uvec3 voxelIdx;
-	//Trace voxels
-	for (int i = 0; i < maxStep; i++) {
-		
-		voxelIdx = GetVoxelIndex(curPos);
-		Voxel voxel = voxelList[ToArrayIdx(voxelIdx)];
-		if (!voxel.empty()) {
-			glm::vec3 voxelPos = GetVoxelWorldPos(voxelIdx);
-			d_pbo[y * w + x] = ConvVec4ToUint(glm::vec4(voxel.PhongLighting(voxelPos), 1.f));
-			break;
-		}
-		curPos += dir * stepSize;
-	}
+//void initCudaTexture()
+//{
+//	frontTex.addressMode[0] = cudaAddressModeWrap;
+//	frontTex.addressMode[1] = cudaAddressModeWrap;
+//	frontTex.filterMode = cudaFilterModeLinear;
+//	frontTex.normalized = true;
+//
+//	backTex.addressMode[0] = cudaAddressModeWrap;
+//	backTex.addressMode[1] = cudaAddressModeWrap;
+//	backTex.filterMode = cudaFilterModeLinear;
+//	backTex.normalized = true;
+//}
 
-}
-
-void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel)
+void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel, uint*& d_idx)
 {
+	if (cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)) != cudaSuccess)
+		printf("cudaMemcpy to constant failed\n");
+
 	cudaError_t cudaStatus;
 	//PreProcess Triangle
 	cudaStatus = cudaMalloc((void**)&cuMesh.d_tri, cuMesh.triNum * sizeof(Triangle));
@@ -241,26 +228,31 @@ void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel)
 	if (cudaStatus != cudaSuccess) printf("cudaDeviceSynchronize Failed\n");
 	cudaStatus = cudaFree(cuMesh.d_idx);
 	if (cudaStatus != cudaSuccess) printf("d_idx cudaFree Failed, error: %s\n", cudaGetErrorString(cudaStatus));
+	
+	cudaStatus = cudaMemcpyToSymbol(voxelCounter, &Info.Counter, sizeof(uint));
+	if (cudaStatus != cudaSuccess) printf("counter cudaMemcpy Failed\n");
 
 	size_t voxelSize = voxelDim * voxelDim * voxelDim * sizeof(Voxel);
 
 	cudaStatus = cudaMalloc((void**)&d_voxel, voxelSize);
 	if (cudaStatus != cudaSuccess) printf("d_voxel cudaMalloc Failed\n");
+	cudaStatus = cudaMalloc((void**)&d_idx, voxelDim * voxelDim * voxelDim * sizeof(uint));
+	if (cudaStatus != cudaSuccess) printf("d_idx cudaMalloc Failed\n");
 	
-#ifndef TRIANGLE_PER_THREAD
-	blockDim = dim3(8, 8, 8), gridDim = dim3(voxelDim / blockDim.x, voxelDim / blockDim.y, voxelDim / blockDim.z);
-#endif // TRIANGLE_PER_THREAD	
 	clock_t t;
 
 	t = clock();
-	VoxelizationKernel << <gridDim, blockDim >> > (d_voxel, cuMesh);
+	VoxelizationKernel << <gridDim, blockDim >> > (d_voxel, d_idx, cuMesh);
 	cudaStatus = cudaGetLastError();
 	if (cudaStatus != cudaSuccess) printf("cuda Launch Kernel Failed\n");
 	cudaStatus = cudaDeviceSynchronize();
 	if (cudaStatus != cudaSuccess) printf("cudaDeviceSynchronize Failed\n");
 	t = clock() - t;
-	printf("Voxelization finished, time : %f", (float)t / CLOCKS_PER_SEC);	
+	printf("Voxelization finished, time : %f\n", (float)t / CLOCKS_PER_SEC);	
 
+	cudaStatus = cudaMemcpyFromSymbol(&Info.Counter, voxelCounter, sizeof(uint));
+	if (cudaStatus != cudaSuccess) printf("counter cudaMemcpyFromSymbol Failed\n");
+	printf("Voxel Counte: %i\n", Info.Counter);
 
 	//Free CudaMesh
 	cudaStatus = cudaFree(cuMesh.d_v);
@@ -269,48 +261,35 @@ void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel)
 	if (cudaStatus != cudaSuccess) printf("d_n cudaFree Failed, error: %s\n", cudaGetErrorString(cudaStatus));
 	cudaStatus = cudaFree(cuMesh.d_tri);
 	if (cudaStatus != cudaSuccess) printf("d_tri cudaFree Failed, error: %s\n", cudaGetErrorString(cudaStatus));
-
-}
-
-void RunRayMarchingKernel(unsigned int* d_pbo, cudaArray_t front, cudaArray_t back, Voxel* d_voxel, CudaMesh cuMesh, const unsigned w, const unsigned h)
-{
-	cudaChannelFormatDesc format = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
-	cudaError_t cudaStatus;
-	if (cudaBindTextureToArray(&frontTex, front, &format) != cudaSuccess)
-		printf("front texture bind failed\n");
-	if (cudaBindTextureToArray(&backTex, back, &format) != cudaSuccess)
-		printf("back texture bind failed\n");
-	//launch cuda kernel
-	dim3 blockDim(16, 16, 1), gridDim(w / blockDim.x + 1, h / blockDim.y + 1, 1);
-	RayMarchingKernel << <gridDim, blockDim >> > (d_pbo, d_voxel, cuMesh, w, h);
-	cudaStatus = cudaGetLastError();
-	if (cudaStatus != cudaSuccess) printf("raymarching cuda Launch Kernel Failed\n");
-	cudaStatus = cudaDeviceSynchronize();
-	if(cudaStatus != cudaSuccess)
-		printf("cudaDeviceSynchronize Failed, error: %s\n", cudaGetErrorString(cudaStatus));
-
-	if (cudaUnbindTexture(frontTex) != cudaSuccess)
-		printf("cuda unbind texture failed\n");
-	if (cudaUnbindTexture(backTex) != cudaSuccess)
-		printf("cuda unbind texture failed\n");
-}
-
-void initCudaVoxelization()
-{
-	frontTex.addressMode[0] = cudaAddressModeWrap;
-	frontTex.addressMode[1] = cudaAddressModeWrap;
-	frontTex.filterMode = cudaFilterModeLinear;
-	frontTex.normalized = true;
-
-	backTex.addressMode[0] = cudaAddressModeWrap;
-	backTex.addressMode[1] = cudaAddressModeWrap;
-	backTex.filterMode = cudaFilterModeLinear;
-	backTex.normalized = true;
-}
-
-void uploadConstant(VoxelizationInfo Info)
-{
 	
-	if (cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)) != cudaSuccess)
-		printf("cudaMemcpy to constant failed\n");
+	//initCudaTexture();
 }
+
+//void RunRayMarchingKernel(uint* d_pbo, cudaArray_t front, cudaArray_t back, Voxel* d_voxel)
+//{
+//	if (cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)) != cudaSuccess)
+//		printf("cudaMemcpy to constant failed\n");
+//
+//	cudaChannelFormatDesc format = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
+//	cudaError_t cudaStatus;
+//	if (cudaBindTextureToArray(&frontTex, front, &format) != cudaSuccess)
+//		printf("front texture bind failed\n");
+//	if (cudaBindTextureToArray(&backTex, back, &format) != cudaSuccess)
+//		printf("back texture bind failed\n");
+//	//launch cuda kernel
+//	dim3 blockDim(16, 16, 1), gridDim(WINDOW_WIDTH / blockDim.x + 1, WINDOW_HEIGHT / blockDim.y + 1, 1);
+//	RayMarchingKernel << <gridDim, blockDim >> > (d_pbo, d_voxel, WINDOW_WIDTH, WINDOW_HEIGHT);
+//	cudaStatus = cudaGetLastError();
+//	if (cudaStatus != cudaSuccess) printf("raymarching cuda Launch Kernel Failed\n");
+//	cudaStatus = cudaDeviceSynchronize();
+//	if(cudaStatus != cudaSuccess)
+//		printf("cudaDeviceSynchronize Failed, error: %s\n", cudaGetErrorString(cudaStatus));
+//
+//	if (cudaUnbindTexture(frontTex) != cudaSuccess)
+//		printf("cuda unbind texture failed\n");
+//	if (cudaUnbindTexture(backTex) != cudaSuccess)
+//		printf("cuda unbind texture failed\n");
+//}
+
+
+

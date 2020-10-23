@@ -9,19 +9,20 @@
 #include <InitShader.h>
 #include "Mesh.h"
 #include "Voxel.cuh"
+#include "Octree.cuh"
 #include "Camera.h"
 #include "FrameBuffer.h"
 
-const int WINDOW_WIDTH = 1280, WINDOW_HEIGHT = 720;
-Voxel* d_voxel = NULL;
+Voxel* d_voxel = NULL; unsigned int* d_idx = NULL; Node* d_node = NULL;
 GLFWwindow* window;
 GLuint shader, pbo, textureID;
 cudaGraphicsResource_t frontCuda, backCuda, pboCuda;
 Camera cam(WINDOW_WIDTH, WINDOW_HEIGHT, 3.1415926f / 3.f, glm::vec3(0, 1.5, 1.5));
 FrameBuffer *front, *back;
 //870K triangle dragon
-Mesh mesh("asset/model/dragon.obj"), Cube("asset/model/cube.obj");
+Mesh mesh("asset/model/bunny.obj"), Cube("asset/model/cube.obj");
 CudaMesh cuMesh; 
+extern VoxelizationInfo Info;
 VoxelizationInfo Info;
 
 void error_callback(int error, const char* description)
@@ -78,7 +79,6 @@ void initInfo() {
 	Info.ka = 0.2f, Info.kd = 1.0f, Info.ks = 1.0f;
 	Info.alpha = 5.f;
 	Info.Dim = voxelDim;
-	uploadConstant(Info);
 }
 void init() {
 	mesh.UploatToDevice(cuMesh);
@@ -147,7 +147,7 @@ void RayMarching() {
 	if (cudaGraphicsResourceGetMappedPointer((void**)&d_pbo, &numBytes, pboCuda) != cudaSuccess)
 		printf("d_pbo map pointer failed\n");
 	//run cuda kernel
-	RunRayMarchingKernel(d_pbo, frontArray, backArray, d_voxel, cuMesh, WINDOW_WIDTH, WINDOW_HEIGHT);
+	RayCastingOctree(d_pbo, frontArray, backArray, d_voxel, d_node);
 
 	//unmap resource
 	if (cudaGraphicsUnmapResources(3, resources) != cudaSuccess)
@@ -161,15 +161,16 @@ int main() {
 		printf("cudaSetDevice Failed");
 		return 0;
 	}*/
-
 	initOpenGL();
 	glfwSetErrorCallback(error_callback);
 	printGlInfo();
+
 	initInfo();
 	init();
-	initCudaVoxelization();
 
-	Voxelization(cuMesh, d_voxel);
+
+	Voxelization(cuMesh, d_voxel, d_idx);
+	OctreeConstruction(d_node, d_voxel, d_idx);
 	clock_t t;
 	//Display
 	while (!glfwWindowShouldClose(window)) {
@@ -179,7 +180,6 @@ int main() {
 		cam.pos = glm::vec3(glm::rotate(glm::radians(1.f), cam.up) * glm::vec4(cam.pos, 1.f));
 		cam.UpdateViewMatrix();
 		Info.camPos = cam.pos;
-		uploadConstant(Info);
 
 		glUseProgram(shader);
 		cam.upload(shader);
@@ -194,7 +194,7 @@ int main() {
 	}
 
 	delete front, delete back;
-	cudaFree(d_voxel);
+	if (cudaFree(d_voxel) != cudaSuccess)	printf("d_voxel cudaFree Failed\n");
 	glfwDestroyWindow(window);
 	glfwTerminate();
 	return 0;
