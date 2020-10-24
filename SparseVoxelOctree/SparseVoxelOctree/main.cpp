@@ -20,7 +20,7 @@ cudaGraphicsResource_t frontCuda, backCuda, pboCuda;
 Camera cam(WINDOW_WIDTH, WINDOW_HEIGHT, 3.1415926f / 3.f, glm::vec3(0, 1.5, 1.5));
 FrameBuffer *front, *back;
 //870K triangle dragon
-Mesh mesh("asset/model/bunny.obj"), Cube("asset/model/cube.obj");
+Mesh mesh("asset/model/dragon.obj"), Cube("asset/model/cube.obj");
 CudaMesh cuMesh; 
 extern VoxelizationInfo Info;
 VoxelizationInfo Info;
@@ -147,7 +147,7 @@ void RayMarching() {
 	if (cudaGraphicsResourceGetMappedPointer((void**)&d_pbo, &numBytes, pboCuda) != cudaSuccess)
 		printf("d_pbo map pointer failed\n");
 	//run cuda kernel
-	RayCastingOctree(d_pbo, frontArray, backArray, d_voxel, d_node);
+	RayCastingOctree(d_pbo, frontArray, backArray, d_node);
 
 	//unmap resource
 	if (cudaGraphicsUnmapResources(3, resources) != cudaSuccess)
@@ -177,7 +177,7 @@ int main() {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
 		t = clock();
-		//cam.pos = glm::vec3(glm::rotate(glm::radians(1.f), cam.up) * glm::vec4(cam.pos, 1.f));
+		cam.pos = glm::vec3(glm::rotate(glm::radians(1.f), cam.up) * glm::vec4(cam.pos, 1.f));
 		cam.UpdateViewMatrix();
 		Info.camPos = cam.pos;
 
@@ -194,7 +194,6 @@ int main() {
 	}
 
 	delete front, delete back;
-	if (cudaFree(d_voxel) != cudaSuccess)	printf("d_voxel cudaFree Failed\n");
 	glfwDestroyWindow(window);
 	glfwTerminate();
 	return 0;
