@@ -4,6 +4,7 @@
 #include <GLFW/glfw3.h>
 #include "cuda_gl_interop.h"
 #include <glm/gtx/transform.hpp>
+#include <glm/gtc/integer.hpp>
 #include <stdio.h>
 #include <time.h>
 #include <InitShader.h>
@@ -12,6 +13,7 @@
 #include "Octree.cuh"
 #include "Camera.h"
 #include "FrameBuffer.h"
+
 
 Voxel* d_voxel = NULL; unsigned int* d_idx = NULL; Node* d_node = NULL;
 GLFWwindow* window;
@@ -24,6 +26,7 @@ Mesh mesh("asset/model/dragon.obj"), Cube("asset/model/cube.obj");
 CudaMesh cuMesh; 
 extern VoxelizationInfo Info;
 VoxelizationInfo Info;
+uint h_MIPMAP = 0;
 
 void error_callback(int error, const char* description)
 {
@@ -79,6 +82,7 @@ void initInfo() {
 	Info.ka = 0.2f, Info.kd = 1.0f, Info.ks = 1.0f;
 	Info.alpha = 5.f;
 	Info.Dim = voxelDim;
+	h_MIPMAP = glm::log2(voxelDim);
 }
 void init() {
 	mesh.UploatToDevice(cuMesh);
@@ -154,7 +158,29 @@ void RayMarching() {
 		printf("cuda unmap resources failed\n");
 }
 
-
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+	const uint maxLevel = glm::log2(Info.Dim);
+	if (action == GLFW_PRESS) {
+		switch (key) {
+		case GLFW_KEY_0:
+			h_MIPMAP = maxLevel; break;
+		case GLFW_KEY_1:
+			h_MIPMAP = maxLevel - 1; break;
+		case GLFW_KEY_2:
+			h_MIPMAP = maxLevel - 2; break;
+		case GLFW_KEY_3:
+			h_MIPMAP = maxLevel - 3; break;
+		case GLFW_KEY_4:
+			h_MIPMAP = maxLevel - 4; break;
+		case GLFW_KEY_5:
+			h_MIPMAP = maxLevel - 5; break;
+		case GLFW_KEY_6:
+			h_MIPMAP = maxLevel - 6; break;
+		case GLFW_KEY_7:
+			h_MIPMAP = maxLevel - 7; break;
+		}
+	}
+}
 
 int main() {
 	/*if (cudaSetDevice(0) != cudaSuccess) {
@@ -167,7 +193,7 @@ int main() {
 
 	initInfo();
 	init();
-
+	glfwSetKeyCallback(window, key_callback);
 
 	Voxelization(cuMesh, d_voxel, d_idx);
 	OctreeConstruction(d_node, d_voxel, d_idx);

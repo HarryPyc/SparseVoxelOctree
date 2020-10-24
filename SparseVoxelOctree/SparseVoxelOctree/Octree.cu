@@ -1,12 +1,14 @@
 #include "Octree.cuh"
 #include "device_launch_parameters.h"
 #include <glm/gtc/integer.hpp>
+#include <time.h>
 #define NULLPTR 0U
 #define MARKED 0xFFFFFFFF
 extern VoxelizationInfo Info;
+extern uint h_MIPMAP;
 __constant__ VoxelizationInfo d_Info;
 __constant__ uint maxLevel, curLevel, voxelCount;
-__constant__ uint start, end;
+__constant__ uint start, end, MIPMAP;
 //__constant__ VoxelizationInfo d_Info;
 __device__ uint curIdx;
 texture<float4, 2, cudaReadModeElementType> frontTex, backTex;
@@ -70,15 +72,21 @@ __global__ void MemcpyVoxelToLeafNodeKernel(Node* d_node, Voxel* voxelSrc, uint*
 __global__ void MimmapKernel(Node* d_node, Voxel* d_voxel) {
 	const unsigned int x = blockDim.x * blockIdx.x + threadIdx.x + start;
 	if (x >= end) return;
-	glm::vec3 color(0.f), normal(0.f);
-
 	const Node root = d_node[x];
+	if (root.ptr == NULLPTR) return;
+
+	glm::vec3 color(0.f), normal(0.f);
+	float counter = 0.f;
 	for (uint i = 0; i < 8; i++) {
 		glm::vec3 c, n;
-		d_node[root.ptr + i].voxel.GetInfo(c, n);
-		color += c, normal += n;
+		Voxel voxel = d_node[root.ptr + i].voxel;
+		if (!voxel.empty()) {
+			voxel.GetInfo(c, n);
+			color += c, normal += n;
+			counter++;
+		}
 	}
-	d_node[x].voxel.SetInfo(color, normal);
+	d_node[x].voxel.SetInfo(color/counter, normal/counter);
 }
 
 void initCudaTexture()
@@ -107,9 +115,9 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel, uint* d_idx)
 	cudaMemcpyToSymbol(end, &h_curIdx, sizeof(uint));
 	cudaMemcpyToSymbol(curIdx, &h_curIdx, sizeof(uint));
 
-	cudaStatus = cudaMalloc((void**)&d_node, Info.Counter * 2 * sizeof(Node));
+	cudaStatus = cudaMalloc((void**)&d_node, Info.Counter * sizeof(Node));
 	if (cudaStatus != cudaSuccess) printf("d_Node cudaMalloc Failed\n");
-
+	clock_t time = clock();
 	for (uint i = 0; i < h_maxLevel; i++) {
 		cudaMemcpyToSymbol(curLevel, &i, sizeof(uint));
 
@@ -156,6 +164,9 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel, uint* d_idx)
 		cudaStatus = cudaDeviceSynchronize();
 		if (cudaStatus != cudaSuccess) printf("MimmapKernel cudaDeviceSynchronize Failed\n");
 	}
+	time = clock() - time;
+	printf("Octree Constructed, time: %f\n", float(time) / CLOCKS_PER_SEC);
+	printf("Octree Total Nodes : %u\n", h_curIdx);
 	//Node h_node[8777];
 	//cudaMemcpy(h_node, d_node, sizeof(Node) * 8777, cudaMemcpyDeviceToHost);
 	delete[] startArr, delete[] endArr;
@@ -188,10 +199,10 @@ struct HitInfo {
 	__device__ HitInfo() {};
 	__device__ HitInfo(glm::uvec3 _idx, float _t) : idx(_idx), t(_t) {};
 };
-__device__ Voxel OctreeTraverse(Node* d_node, Node root, Ray ray, glm::vec3 minAABB, uint currentLevel, uint targetLevel, float& t) {
+__device__ Voxel OctreeTraverse(Node* d_node, Node root, Ray ray, glm::vec3 minAABB, uint currentLevel, float& t) {
 	if (root.ptr == NULLPTR)
 		return root.voxel;
-	if (currentLevel == targetLevel)
+	if (currentLevel == MIPMAP)
 		return root.voxel;
 
 	currentLevel++;
@@ -222,9 +233,9 @@ __device__ Voxel OctreeTraverse(Node* d_node, Node root, Ray ray, glm::vec3 minA
 	for (int i = 0; i < counter; i++) {
 		Node _root = d_node[root.ptr + hits[i].idx.x + hits[i].idx.y * 2 + hits[i].idx.z * 4];
 		glm::vec3 _minAABB = minAABB + glm::vec3(hits[i].idx) * delta;
-		Voxel voxel = OctreeTraverse(d_node, _root, ray, _minAABB, currentLevel, targetLevel, t);
+		Voxel voxel = OctreeTraverse(d_node, _root, ray, _minAABB, currentLevel,  t);
 		if (!voxel.empty()) {
-			if (currentLevel == targetLevel)
+			if (currentLevel == MIPMAP)
 				t = hits[i].t;
 			return voxel;
 		}
@@ -247,7 +258,7 @@ __global__ void RayCastKernel(uint* d_pbo, Node* d_node, const uint w, const uin
 
 	glm::vec3 color, pos;
 	float t = 999.f;
-	Voxel voxel = OctreeTraverse(d_node, d_node[0], ray, d_Info.minAABB, 0, 9, t);
+	Voxel voxel = OctreeTraverse(d_node, d_node[0], ray, d_Info.minAABB, 0, t);
 	pos = ray.o + t * ray.d;
 	color = voxel.PhongLighting(pos);
 	d_pbo[y * w + x] = ConvVec4ToUint(glm::vec4(color, 1));
@@ -258,6 +269,7 @@ void RayCastingOctree(uint* d_pbo, cudaArray_t front, cudaArray_t back, Node* d_
 {
 	if (cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)) != cudaSuccess)
 		printf("cudaMemcpy to constant failed\n");
+	cudaMemcpyToSymbol(MIPMAP, &h_MIPMAP, 4);
 
 	cudaChannelFormatDesc format = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
 	cudaError_t cudaStatus;

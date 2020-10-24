@@ -252,7 +252,7 @@ void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel, uint*& d_idx)
 
 	cudaStatus = cudaMemcpyFromSymbol(&Info.Counter, voxelCounter, sizeof(uint));
 	if (cudaStatus != cudaSuccess) printf("counter cudaMemcpyFromSymbol Failed\n");
-	printf("Voxel Counte: %i\n", Info.Counter);
+	printf("Voxel Count: %i\n", Info.Counter);
 
 	//Free CudaMesh
 	cudaStatus = cudaFree(cuMesh.d_v);
