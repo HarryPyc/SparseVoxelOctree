@@ -7,12 +7,12 @@ extern __constant__ VoxelizationInfo d_Info;
 //texture<float4, 2, cudaReadModeElementType> frontTex, backTex;
 __device__ uint voxelCounter;
 
- __device__ Voxel::Voxel()
+__host__ __device__ Voxel::Voxel()
 {
 	c = 0, n = 0;
 }
 
- __device__ Voxel::~Voxel() {
+__host__ __device__ Voxel::~Voxel() {
 
 }
 

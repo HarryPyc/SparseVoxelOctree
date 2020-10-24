@@ -8,8 +8,8 @@ typedef unsigned int uint;
 
 class Voxel {
 public:
-	__device__ Voxel();
-	__device__ ~Voxel();
+	__host__ __device__ Voxel();
+	__host__ __device__ ~Voxel();
 
 	__device__ void GetInfo(glm::vec3& color, glm::vec3& normal);
 	__device__ void SetInfo(glm::vec3 color,  glm::vec3 normal);
@@ -29,7 +29,7 @@ struct VoxelizationInfo {
 };
 
 const int WINDOW_WIDTH = 1280, WINDOW_HEIGHT = 720;
-const unsigned short voxelDim = 512;
+const unsigned short voxelDim = 64;
 
 
 void Voxelization(CudaMesh &cuMesh, Voxel*& d_voxel, uint *& d_idx);
