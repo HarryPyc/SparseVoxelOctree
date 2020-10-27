@@ -217,7 +217,8 @@ __device__ Voxel OctreeTraverse(Node* d_node, Node root, Ray ray, glm::vec3 minA
 				glm::uvec3 idx(i, j, k);
 				glm::vec3 _minAABB = minAABB + glm::vec3(idx) * delta;
 				float _t;
-				if (ray.RayAABBIntersection(_minAABB, _minAABB + delta, _t)) {
+				if (ray.RayAABBIntersection(_minAABB, _minAABB + delta, _t) &&
+					!d_node[root.ptr + idx.x + idx.y * 2 + idx.z * 4].voxel.empty()) {
 					HitInfo hit(idx, _t);
 					hits[counter++] = hit;
 				}
