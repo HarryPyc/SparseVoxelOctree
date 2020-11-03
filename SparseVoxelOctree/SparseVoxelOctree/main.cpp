@@ -16,7 +16,7 @@
 
 
 Voxel* d_voxel = NULL; unsigned int* d_idx = NULL; Node* d_node = NULL;
-GLFWwindow* window;
+GLFWwindow* window; uint WIDTH = WINDOW_WIDTH, HEIGHT = WINDOW_HEIGHT;
 GLuint shader, pbo, textureID;
 cudaGraphicsResource_t frontCuda, backCuda, pboCuda;
 Camera cam(WINDOW_WIDTH, WINDOW_HEIGHT, 3.1415926f / 3.f, glm::vec3(0, 1.5, 1.5));
@@ -103,14 +103,13 @@ void init() {
 }
 void display() {
 	glUseProgram(0);
+	glViewport(0, 0, WIDTH, HEIGHT);
 	glEnable(GL_TEXTURE_2D);
-
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
 	glBindTexture(GL_TEXTURE_2D, textureID);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT,
 		GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 	
-
 	glBegin(GL_QUADS);
 	glTexCoord2f(0.0f, 0.0f); glVertex3f(-1.0f, -1.0f, 0.0f);
 	glTexCoord2f(0.0f, 1.0f); glVertex3f(-1.0f, 1.0f, 0.0f);
@@ -122,7 +121,6 @@ void display() {
 }
 
 void RayMarching() {
-
 
 	glCullFace(GL_BACK);
 	front->Enable();
@@ -181,6 +179,9 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 		}
 	}
 }
+void resize_callback(GLFWwindow* window, int width, int height) {
+	WIDTH = width, HEIGHT = height;
+}
 
 int main() {
 	/*if (cudaSetDevice(0) != cudaSuccess) {
@@ -194,6 +195,7 @@ int main() {
 	initInfo();
 	init();
 	glfwSetKeyCallback(window, key_callback);
+	glfwSetFramebufferSizeCallback(window, resize_callback);
 
 	Voxelization(cuMesh, d_voxel, d_idx);
 	OctreeConstruction(d_node, d_voxel, d_idx);
