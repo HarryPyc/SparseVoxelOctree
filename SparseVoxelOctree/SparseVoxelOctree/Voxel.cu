@@ -232,11 +232,11 @@ void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel, uint*& d_idx)
 	cudaStatus = cudaMemcpyToSymbol(voxelCounter, &Info.Counter, sizeof(uint));
 	if (cudaStatus != cudaSuccess) printf("counter cudaMemcpy Failed\n");
 
-	size_t voxelSize = voxelDim * voxelDim * voxelDim * sizeof(Voxel);
+	size_t voxelSize = voxelDim * voxelDim * voxelDim / 4 * sizeof(Voxel);
 
 	cudaStatus = cudaMalloc((void**)&d_voxel, voxelSize);
 	if (cudaStatus != cudaSuccess) printf("d_voxel cudaMalloc Failed\n");
-	cudaStatus = cudaMalloc((void**)&d_idx, voxelDim * voxelDim * voxelDim * sizeof(uint));
+	cudaStatus = cudaMalloc((void**)&d_idx, voxelDim * voxelDim * voxelDim / 4 * sizeof(uint));
 	if (cudaStatus != cudaSuccess) printf("d_idx cudaMalloc Failed\n");
 	
 	clock_t t;

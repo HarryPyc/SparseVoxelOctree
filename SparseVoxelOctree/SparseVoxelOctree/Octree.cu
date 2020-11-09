@@ -10,15 +10,24 @@ __constant__ VoxelizationInfo d_Info;
 __constant__ uint maxLevel, curLevel, voxelCount;
 __constant__ uint start, end, MIPMAP;
 //__constant__ VoxelizationInfo d_Info;
-__device__ uint curIdx;
+__device__ uint curIdx, traverseCounter;
 texture<float4, 2, cudaReadModeElementType> frontTex, backTex;
+texture<uint4, 1, cudaReadModeElementType> octree;
 
 __host__ __device__ Node::Node() : voxel() {
 	ptr = NULLPTR;
 }
 
+__host__ __device__ Node::Node(uint4 u) : ptr(u.x)
+{
+	voxel.c = u.z;
+	voxel.n = u.w;
+}
+
 __host__ __device__ Node::~Node() {
 }
+
+
 
 __global__ void MarkKernel(Node* d_node, uint* d_idx) {
 	const unsigned int x = blockDim.x * blockIdx.x + threadIdx.x;
@@ -77,6 +86,7 @@ __global__ void MimmapKernel(Node* d_node, Voxel* d_voxel) {
 
 	glm::vec3 color(0.f), normal(0.f);
 	float counter = 0.f;
+	uint bitMask = 0;
 	for (uint i = 0; i < 8; i++) {
 		glm::vec3 c, n;
 		Voxel voxel = d_node[root.ptr + i].voxel;
@@ -84,9 +94,15 @@ __global__ void MimmapKernel(Node* d_node, Voxel* d_voxel) {
 			voxel.GetInfo(c, n);
 			color += c, normal += n;
 			counter++;
+			bitMask |= 1U << i;
 		}
 	}
-	d_node[x].voxel.SetInfo(color/counter, normal/counter);
+	
+	Voxel rootVoxel;
+	rootVoxel.SetInfo(color / counter, normal / counter);
+	rootVoxel.n |= bitMask << 24U;
+	d_node[x].voxel = rootVoxel;
+
 }
 
 void initCudaTexture()
@@ -100,6 +116,10 @@ void initCudaTexture()
 	backTex.addressMode[1] = cudaAddressModeWrap;
 	backTex.filterMode = cudaFilterModeLinear;
 	backTex.normalized = true;
+
+	octree.addressMode[0] = cudaAddressModeWrap;
+	octree.filterMode = cudaFilterModePoint;
+	octree.normalized = false;
 }
 
 void OctreeConstruction(Node*& d_node, Voxel*& d_voxel, uint* d_idx)
@@ -108,14 +128,15 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel, uint* d_idx)
 	cudaError_t cudaStatus;
 	const uint h_maxLevel = glm::log2(Info.Dim);
 	uint h_start = 0, h_curIdx = 1;
-	uint* startArr = new uint[h_maxLevel], *endArr = new uint[h_maxLevel];
+	uint* startArr = new uint[h_maxLevel + 1], *endArr = new uint[h_maxLevel + 1];
+	startArr[0] = 0, endArr[0] = 1;
 	cudaMemcpyToSymbol(maxLevel, &h_maxLevel, sizeof(uint));
 	cudaMemcpyToSymbol(voxelCount, &Info.Counter, sizeof(uint));
 	cudaMemcpyToSymbol(start, &h_start, sizeof(uint));
 	cudaMemcpyToSymbol(end, &h_curIdx, sizeof(uint));
 	cudaMemcpyToSymbol(curIdx, &h_curIdx, sizeof(uint));
 
-	cudaStatus = cudaMalloc((void**)&d_node, Info.Counter * sizeof(Node));
+	cudaStatus = cudaMalloc((void**)&d_node, 2 * Info.Counter * sizeof(Node));
 	if (cudaStatus != cudaSuccess) printf("d_Node cudaMalloc Failed\n");
 	clock_t time = clock();
 	for (uint i = 0; i < h_maxLevel; i++) {
@@ -138,7 +159,7 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel, uint* d_idx)
 		cudaMemcpyFromSymbol(&h_curIdx, curIdx, sizeof(uint));
 		cudaMemcpyToSymbol(start, &h_start, sizeof(uint));
 		cudaMemcpyToSymbol(end, &h_curIdx, sizeof(uint));
-		startArr[i] = h_start, endArr[i] = h_curIdx;
+		startArr[i + 1] = h_start, endArr[i + 1] = h_curIdx;
 	}
 	
 	//Copy voxel to leaf node
@@ -153,7 +174,7 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel, uint* d_idx)
 	if (cudaStatus != cudaSuccess) printf("d_idx cudaFree Failed\n");
 
 	//Mimmap voxel value from bottom to up
-	for (int i = h_maxLevel - 2; i >= 0; i--) {
+	for (int i = h_maxLevel - 1; i >= 0; i--) {
 		cudaMemcpyToSymbol(curLevel, &i, 4);
 		cudaMemcpyToSymbol(start, startArr + i, 4);
 		cudaMemcpyToSymbol(end, endArr + i, 4);
@@ -171,7 +192,13 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel, uint* d_idx)
 	//cudaMemcpy(h_node, d_node, sizeof(Node) * 8777, cudaMemcpyDeviceToHost);
 	delete[] startArr, delete[] endArr;
 	initCudaTexture();
-	cudaStatus = cudaDeviceSetLimit(cudaLimitStackSize, 1024 * 10);
+
+	//cudaChannelFormatDesc format = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindUnsigned);
+	//size_t octree_size = size_t(h_curIdx) * sizeof(Node);
+	//size_t offset = 0;
+	//cudaStatus = cudaBindTexture(&offset, &octree, d_node, &format, octree_size);
+	//if (cudaStatus != cudaSuccess) printf("cudaBindTexture Failed, error: %s\n", cudaGetErrorString(cudaStatus));
+	cudaStatus = cudaDeviceSetLimit(cudaLimitStackSize, 1024 * 8);
 	if (cudaStatus != cudaSuccess) printf("cudaDeviceSetLimit Failed\n");
 }
 struct Ray {
@@ -199,7 +226,12 @@ struct HitInfo {
 	__device__ HitInfo() {};
 	__device__ HitInfo(glm::uvec3 _idx, float _t) : idx(_idx), t(_t) {};
 };
+__device__ inline Node FetchNode(int i) {
+	uint4 res = tex1Dfetch(octree, i);
+	return Node(res);
+}
 __device__ Voxel OctreeTraverse(Node* d_node, Node root, Ray ray, glm::vec3 minAABB, uint currentLevel, float& t) {
+	//atomicAdd(&traverseCounter, 1U);
 	if (root.ptr == NULLPTR)
 		return root.voxel;
 	if (currentLevel == MIPMAP)
@@ -211,18 +243,16 @@ __device__ Voxel OctreeTraverse(Node* d_node, Node root, Ray ray, glm::vec3 minA
 	float temp = 999.f;
 	Voxel res;
 	const float delta = d_Info.delta / float((1 << (currentLevel)));
-	for (int i = 0; i < 2; i++)
-		for (int j = 0; j < 2; j++)
-			for (int k = 0; k < 2; k++) {
-				glm::uvec3 idx(i, j, k);
-				glm::vec3 _minAABB = minAABB + glm::vec3(idx) * delta;
-				float _t;
-				if (ray.RayAABBIntersection(_minAABB, _minAABB + delta, _t) &&
-					!d_node[root.ptr + idx.x + idx.y * 2 + idx.z * 4].voxel.empty()) {
-					HitInfo hit(idx, _t);
-					hits[counter++] = hit;
-				}
-			}
+	for (int i = 0; i < 8; i++) {
+		glm::uvec3 idx(i & 1, i >> 1 & 1, i >> 2);
+		glm::vec3 _minAABB = minAABB + glm::vec3(idx) * delta;
+		float _t;
+		if (root.hasVoxel(i) && ray.RayAABBIntersection(_minAABB, _minAABB + delta, _t)) {// !d_node[root.ptr + i].voxel.empty()
+			HitInfo hit(idx, _t);
+			hits[counter++] = hit;
+
+		}
+	}
 	for(int i = 0; i < counter - 1; i++)
 		for (int j = 0; j < counter - i - 1; j++) {
 			if (hits[j].t > hits[j + 1].t) {
@@ -271,6 +301,8 @@ void RayCastingOctree(uint* d_pbo, cudaArray_t front, cudaArray_t back, Node* d_
 	if (cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)) != cudaSuccess)
 		printf("cudaMemcpy to constant failed\n");
 	cudaMemcpyToSymbol(MIPMAP, &h_MIPMAP, 4);
+	uint h_tCounter = 0;
+	cudaMemcpyToSymbol(traverseCounter, &h_tCounter, 4);
 
 	cudaChannelFormatDesc format = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
 	cudaError_t cudaStatus;
@@ -287,6 +319,8 @@ void RayCastingOctree(uint* d_pbo, cudaArray_t front, cudaArray_t back, Node* d_
 	if(cudaStatus != cudaSuccess)
 		printf("raymarching cudaDeviceSynchronize Failed, error: %s\n", cudaGetErrorString(cudaStatus));
 
+	cudaMemcpyFromSymbol(&h_tCounter, traverseCounter, 4);
+	//printf("Traverse Count: %u\n", h_tCounter);
 	if (cudaUnbindTexture(frontTex) != cudaSuccess)
 		printf("cuda unbind texture failed\n");
 	if (cudaUnbindTexture(backTex) != cudaSuccess)

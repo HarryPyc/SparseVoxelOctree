@@ -188,6 +188,7 @@ int main() {
 		printf("cudaSetDevice Failed");
 		return 0;
 	}*/
+
 	initOpenGL();
 	glfwSetErrorCallback(error_callback);
 	printGlInfo();
@@ -200,6 +201,8 @@ int main() {
 	Voxelization(cuMesh, d_voxel, d_idx);
 	OctreeConstruction(d_node, d_voxel, d_idx);
 	clock_t t;
+	float t_total = 0.f, frames = 0.f;
+	std::string title;
 	//Display
 	while (!glfwWindowShouldClose(window)) {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -215,7 +218,14 @@ int main() {
 		display();
 		t = clock() - t;
 		float fps = 1.f / ((float)t / CLOCKS_PER_SEC);
-		std::string title = "Fps: " + std::to_string(fps);
+		title = "Fps: " + std::to_string(fps);
+		if (frames++ > 5.f) {
+			t_total += (float)t;
+			if (frames == 105.f) {
+				printf("Computation time: %f\n", t_total / 100.f / CLOCKS_PER_SEC);
+				frames = 0.f; t_total = 0.f;
+			}
+		}
 		glfwSetWindowTitle(window, title.c_str());
 		glfwSwapBuffers(window);
 		glfwPollEvents();

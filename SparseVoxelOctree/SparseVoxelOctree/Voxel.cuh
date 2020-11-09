@@ -29,7 +29,7 @@ struct VoxelizationInfo {
 };
 
 const int WINDOW_WIDTH = 1280, WINDOW_HEIGHT = 720;
-const unsigned short voxelDim = 512;
+const unsigned short voxelDim = 1024;
 
 
 void Voxelization(CudaMesh &cuMesh, Voxel*& d_voxel, uint *& d_idx);
