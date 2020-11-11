@@ -19,10 +19,10 @@ Voxel* d_voxel = NULL; unsigned int* d_idx = NULL; Node* d_node = NULL;
 GLFWwindow* window; uint WIDTH = WINDOW_WIDTH, HEIGHT = WINDOW_HEIGHT;
 GLuint shader, pbo, textureID;
 cudaGraphicsResource_t frontCuda, backCuda, pboCuda;
-Camera cam(WINDOW_WIDTH, WINDOW_HEIGHT, 3.1415926f / 3.f, glm::vec3(0, 1.5, 1.5));
-FrameBuffer *front, *back;
+Camera cam(WINDOW_WIDTH, WINDOW_HEIGHT, 3.1415926f / 3.f, glm::vec3(0, 0.7f, 1.5f), glm::vec3(0.f, 0.5f, 0.f));
+FrameBuffer *back;
 //870K triangle dragon
-Mesh mesh("asset/model/dragon.obj"), Cube("asset/model/cube.obj");
+Mesh mesh("asset/model/happy.obj"), Cube("asset/model/cube.obj");
 CudaMesh cuMesh; 
 extern VoxelizationInfo Info;
 VoxelizationInfo Info;
@@ -87,15 +87,13 @@ void initInfo() {
 void init() {
 	mesh.UploatToDevice(cuMesh);
 	Cube.CreateVao();
-	Cube.M = glm::translate(Info.minAABB + Info.delta/2.f) * glm::scale(glm::vec3(Info.delta / 2.f));
-	front = new FrameBuffer(WINDOW_WIDTH, WINDOW_HEIGHT), back = new FrameBuffer(WINDOW_WIDTH, WINDOW_HEIGHT);
+	//Cube.M = glm::translate(Info.minAABB + Info.delta/2.f) * glm::scale(glm::vec3(Info.delta / 2.f));
+	back = new FrameBuffer(WINDOW_WIDTH, WINDOW_HEIGHT);
 	shader = InitShader("shader/vs.vert", "shader/fs.frag");
 	glUseProgram(shader);
-	glUniformMatrix4fv(glGetUniformLocation(shader, "M"), 1, false, &Cube.M[0][0]);
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_CULL_FACE);
 	//Bind opengl buffer to cuda
-	front->BindToDevice(frontCuda);
 	back->BindToDevice(backCuda);
 	if (cudaGraphicsGLRegisterBuffer(&pboCuda, pbo, cudaGraphicsRegisterFlagsNone) != cudaSuccess)
 		printf("cuda bind pbo failed\n");
@@ -121,26 +119,18 @@ void display() {
 }
 
 void RayMarching() {
-
-	glCullFace(GL_BACK);
-	front->Enable();
-	front->DrawBuffer();
-	Cube.Draw();
-	front->DisAble();
-
+	
 	glCullFace(GL_FRONT);
 	back->Enable();
 	back->DrawBuffer();
 	Cube.Draw();
 	back->DisAble();
 	//cuda map resources
-	cudaGraphicsResource_t resources[3] = { frontCuda, backCuda, pboCuda };
-	if (cudaGraphicsMapResources(3, resources) != cudaSuccess)
+	cudaGraphicsResource_t resources[2] = { backCuda, pboCuda };
+	if (cudaGraphicsMapResources(2, resources) != cudaSuccess)
 		printf("cuda map resources failed\n");
-	cudaArray_t frontArray, backArray;
+	cudaArray_t backArray;
 	unsigned int* d_pbo;
-	if (cudaGraphicsSubResourceGetMappedArray(&frontArray, frontCuda, 0, 0) != cudaSuccess)
-		printf("d_front map pointer failed\n");
 	if (cudaGraphicsSubResourceGetMappedArray(&backArray, backCuda, 0, 0) != cudaSuccess)
 		printf("d_back map pointer failed\n");
 
@@ -149,10 +139,10 @@ void RayMarching() {
 	if (cudaGraphicsResourceGetMappedPointer((void**)&d_pbo, &numBytes, pboCuda) != cudaSuccess)
 		printf("d_pbo map pointer failed\n");
 	//run cuda kernel
-	RayCastingOctree(d_pbo, frontArray, backArray, d_node);
+	RayCastingOctree(d_pbo, cam.pos, backArray, d_node);
 
 	//unmap resource
-	if (cudaGraphicsUnmapResources(3, resources) != cudaSuccess)
+	if (cudaGraphicsUnmapResources(2, resources) != cudaSuccess)
 		printf("cuda unmap resources failed\n");
 }
 
@@ -200,6 +190,7 @@ int main() {
 
 	Voxelization(cuMesh, d_voxel, d_idx);
 	OctreeConstruction(d_node, d_voxel, d_idx);
+	initRayCasting();
 	clock_t t;
 	float t_total = 0.f, frames = 0.f;
 	std::string title;
@@ -219,19 +210,19 @@ int main() {
 		t = clock() - t;
 		float fps = 1.f / ((float)t / CLOCKS_PER_SEC);
 		title = "Fps: " + std::to_string(fps);
-		if (frames++ > 5.f) {
-			t_total += (float)t;
-			if (frames == 105.f) {
-				printf("Computation time: %f\n", t_total / 100.f / CLOCKS_PER_SEC);
-				frames = 0.f; t_total = 0.f;
-			}
-		}
+		//if (frames++ > 5.f) {
+		//	t_total += (float)t;
+		//	if (frames == 105.f) {
+		//		printf("Computation time: %f\n", t_total / 100.f / CLOCKS_PER_SEC);
+		//		frames = 0.f; t_total = 0.f;
+		//	}
+		//}
 		glfwSetWindowTitle(window, title.c_str());
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 	}
 
-	delete front, delete back;
+	delete back;
 	glfwDestroyWindow(window);
 	glfwTerminate();
 	return 0;

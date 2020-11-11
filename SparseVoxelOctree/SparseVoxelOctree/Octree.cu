@@ -2,6 +2,8 @@
 #include "device_launch_parameters.h"
 #include <glm/gtc/integer.hpp>
 #include <time.h>
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 #define NULLPTR 0U
 #define MARKED 0xFFFFFFFF
 extern VoxelizationInfo Info;
@@ -11,8 +13,9 @@ __constant__ uint maxLevel, curLevel, voxelCount;
 __constant__ uint start, end, MIPMAP;
 //__constant__ VoxelizationInfo d_Info;
 __device__ uint curIdx, traverseCounter;
-texture<float4, 2, cudaReadModeElementType> frontTex, backTex;
+texture<float4, 2, cudaReadModeElementType> backTex;
 texture<uint4, 1, cudaReadModeElementType> octree;
+texture<float4, cudaTextureTypeCubemap, cudaReadModeElementType> skyBox;
 
 __host__ __device__ Node::Node() : voxel() {
 	ptr = NULLPTR;
@@ -84,11 +87,13 @@ __global__ void MimmapKernel(Node* d_node, Voxel* d_voxel) {
 	const Node root = d_node[x];
 	if (root.ptr == NULLPTR) return;
 
-	glm::vec3 color(0.f), normal(0.f);
+	glm::vec4 color(0.f);
+	glm::vec3 normal(0.f);
 	float counter = 0.f;
 	uint bitMask = 0;
 	for (uint i = 0; i < 8; i++) {
-		glm::vec3 c, n;
+		glm::vec4 c;
+		glm::vec3 n;
 		Voxel voxel = d_node[root.ptr + i].voxel;
 		if (!voxel.empty()) {
 			voxel.GetInfo(c, n);
@@ -107,11 +112,6 @@ __global__ void MimmapKernel(Node* d_node, Voxel* d_voxel) {
 
 void initCudaTexture()
 {
-	frontTex.addressMode[0] = cudaAddressModeWrap;
-	frontTex.addressMode[1] = cudaAddressModeWrap;
-	frontTex.filterMode = cudaFilterModeLinear;
-	frontTex.normalized = true;
-
 	backTex.addressMode[0] = cudaAddressModeWrap;
 	backTex.addressMode[1] = cudaAddressModeWrap;
 	backTex.filterMode = cudaFilterModeLinear;
@@ -188,18 +188,9 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel, uint* d_idx)
 	time = clock() - time;
 	printf("Octree Constructed, time: %f\n", float(time) / CLOCKS_PER_SEC);
 	printf("Octree Total Nodes : %u\n", h_curIdx);
-	//Node h_node[8777];
-	//cudaMemcpy(h_node, d_node, sizeof(Node) * 8777, cudaMemcpyDeviceToHost);
-	delete[] startArr, delete[] endArr;
-	initCudaTexture();
 
-	//cudaChannelFormatDesc format = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindUnsigned);
-	//size_t octree_size = size_t(h_curIdx) * sizeof(Node);
-	//size_t offset = 0;
-	//cudaStatus = cudaBindTexture(&offset, &octree, d_node, &format, octree_size);
-	//if (cudaStatus != cudaSuccess) printf("cudaBindTexture Failed, error: %s\n", cudaGetErrorString(cudaStatus));
-	cudaStatus = cudaDeviceSetLimit(cudaLimitStackSize, 1024 * 8);
-	if (cudaStatus != cudaSuccess) printf("cudaDeviceSetLimit Failed\n");
+	delete[] startArr, delete[] endArr;
+	
 }
 struct Ray {
 	glm::vec3 o, d, invD;
@@ -279,24 +270,26 @@ __global__ void RayCastKernel(uint* d_pbo, Node* d_node, const uint w, const uin
 	if (x >= w || y >= h) return;
 	d_pbo[y * w + x] = 0;
 	const float u = float(x) / float(w), v = float(y) / float(h);
-	float4 frontSample = tex2D(frontTex, u, v), backSample = tex2D(backTex, u, v);
-	if (frontSample.w < 1.f) return;
+	float4 backSample = tex2D(backTex, u, v);
 		
-	glm::vec3 frontPos(frontSample.x, frontSample.y, frontSample.z),
-		backPos(backSample.x, backSample.y, backSample.z);
-	glm::vec3 dir = glm::normalize(backPos - frontPos);
-	Ray ray(frontPos, dir);
+	glm::vec3 dir = glm::normalize(glm::vec3(backSample.x, backSample.y, backSample.z));
+	Ray ray(d_Info.camPos, dir);
 
-	glm::vec3 color, pos;
+	glm::vec4 color;
+	glm::vec3 pos;
 	float t = 999.f;
 	Voxel voxel = OctreeTraverse(d_node, d_node[0], ray, d_Info.minAABB, 0, t);
 	pos = ray.o + t * ray.d;
 	color = voxel.PhongLighting(pos);
-	d_pbo[y * w + x] = ConvVec4ToUint(glm::vec4(color, 1));
+	float4 texel = texCubemap(skyBox, dir.x, dir.y, dir.z);
+	glm::vec3 backGround(texel.x, texel.y, texel.z);
+	glm::vec3 res = glm::vec3(color) * color.a + backGround * (1.f - color.a);
+	d_pbo[y * w + x] = ConvVec4ToUint(glm::vec4(res, 1));
 
 }
 
-void RayCastingOctree(uint* d_pbo, cudaArray_t front, cudaArray_t back, Node* d_node)
+
+void RayCastingOctree(uint* d_pbo, glm::vec3 h_camPos, cudaArray_t back, Node* d_node)
 {
 	if (cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)) != cudaSuccess)
 		printf("cudaMemcpy to constant failed\n");
@@ -306,8 +299,6 @@ void RayCastingOctree(uint* d_pbo, cudaArray_t front, cudaArray_t back, Node* d_
 
 	cudaChannelFormatDesc format = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
 	cudaError_t cudaStatus;
-	if (cudaBindTextureToArray(&frontTex, front, &format) != cudaSuccess)
-		printf("front texture bind failed\n");
 	if (cudaBindTextureToArray(&backTex, back, &format) != cudaSuccess)
 		printf("back texture bind failed\n");
 	//launch cuda kernel
@@ -321,10 +312,65 @@ void RayCastingOctree(uint* d_pbo, cudaArray_t front, cudaArray_t back, Node* d_
 
 	cudaMemcpyFromSymbol(&h_tCounter, traverseCounter, 4);
 	//printf("Traverse Count: %u\n", h_tCounter);
-	if (cudaUnbindTexture(frontTex) != cudaSuccess)
-		printf("cuda unbind texture failed\n");
 	if (cudaUnbindTexture(backTex) != cudaSuccess)
 		printf("cuda unbind texture failed\n");
+}
+
+void initSkyBox() {
+	std::string faces[6]{
+		"asset/texture/skybox/posx.jpg",
+		"asset/texture/skybox/negx.jpg",
+		"asset/texture/skybox/posy.jpg",
+		"asset/texture/skybox/negy.jpg",
+		"asset/texture/skybox/posz.jpg",
+		"asset/texture/skybox/negz.jpg"
+	};
+	//Read Image
+	int w, h, n, num_faces = 6;
+	stbi_loadf(faces[0].c_str(), &w, &h, &n, 4);
+	size_t face_size = w * h * 4;
+	float* h_data = new float[face_size * num_faces];
+	for (int i = 0; i < num_faces; i++) {
+		float* image = stbi_loadf(faces[i].c_str(), &w, &h, &n, 4);
+		memcpy(h_data + face_size * i, image, face_size * sizeof(float));
+		delete image;
+	}
+
+	//Cuda Malloc
+	cudaChannelFormatDesc format = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
+	cudaArray_t cu3dArr;
+	gpuErrchk(cudaMalloc3DArray(&cu3dArr, &format, make_cudaExtent(w, h, num_faces), cudaArrayCubemap));
+	cudaMemcpy3DParms myparms = { 0 };
+	myparms.srcPos = make_cudaPos(0, 0, 0);
+	myparms.dstPos = make_cudaPos(0, 0, 0);
+	myparms.srcPtr = make_cudaPitchedPtr(h_data, w * 4 * sizeof(float), w, h);
+	myparms.dstArray = cu3dArr;
+	myparms.extent = make_cudaExtent(w, h, num_faces);
+	myparms.kind = cudaMemcpyHostToDevice;
+	gpuErrchk(cudaMemcpy3D(&myparms));
+
+	//Init texture
+	skyBox.addressMode[0] = cudaAddressModeWrap;
+	skyBox.addressMode[1] = cudaAddressModeWrap;
+	skyBox.addressMode[2] = cudaAddressModeWrap;
+	skyBox.filterMode = cudaFilterModeLinear;
+	skyBox.normalized = true;
+	gpuErrchk(cudaBindTextureToArray(&skyBox, cu3dArr, &format));
+
+	delete h_data;
+}
+
+void initRayCasting()
+{
+	initCudaTexture();
+	initSkyBox();
+	//cudaChannelFormatDesc format = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindUnsigned);
+	//size_t octree_size = size_t(h_curIdx) * sizeof(Node);
+	//size_t offset = 0;
+	//cudaStatus = cudaBindTexture(&offset, &octree, d_node, &format, octree_size);
+	//if (cudaStatus != cudaSuccess) printf("cudaBindTexture Failed, error: %s\n", cudaGetErrorString(cudaStatus));
+	gpuErrchk(cudaDeviceSetLimit(cudaLimitStackSize, 1024 * 8));
+
 }
 
 

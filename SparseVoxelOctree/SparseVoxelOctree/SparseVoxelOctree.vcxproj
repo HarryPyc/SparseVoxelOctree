@@ -96,6 +96,7 @@
     <ClInclude Include="include\InitShader.h" />
     <ClInclude Include="Mesh.h" />
     <ClInclude Include="Octree.cuh" />
+    <ClInclude Include="SkyBox.h" />
     <ClInclude Include="Voxel.cuh" />
   </ItemGroup>
   <ItemGroup>
@@ -104,9 +105,12 @@
     <ClCompile Include="include\InitShader.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Mesh.cpp" />
+    <ClCompile Include="SkyBox.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shader\fs.frag" />
+    <None Include="shader\skybox.frag" />
+    <None Include="shader\skybox.vert" />
     <None Include="shader\vs.vert" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

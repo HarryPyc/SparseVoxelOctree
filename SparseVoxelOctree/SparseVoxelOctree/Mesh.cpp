@@ -29,7 +29,7 @@ void Mesh::UploatToDevice(CudaMesh &cuMesh)
 	if (cudaStatus != cudaSuccess) printf("d_idx cudaMemcpy Failed\n");
 }
 
-void Mesh::CreateVao()
+GLuint Mesh::CreateVao()
 {
 	glGenVertexArrays(1, &vao);
 	glBindVertexArray(vao);
@@ -50,7 +50,7 @@ void Mesh::CreateVao()
 
 	glVertexAttribPointer(pos_loc, 3, GL_FLOAT, false, 0, 0);
 	glBindVertexArray(0);
-
+	return vao;
 }
 
 void Mesh::Draw()

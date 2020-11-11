@@ -16,26 +16,27 @@ __host__ __device__ Voxel::~Voxel() {
 
 }
 
- __device__ void Voxel::GetInfo(glm::vec3& color, glm::vec3& normal) {
-	color = glm::vec3(float((c & 0x000000FF)), float((c & 0x0000FF00) >> 8U), float((c & 0x00FF0000) >> 16U));
+ __device__ void Voxel::GetInfo(glm::vec4& color, glm::vec3& normal) {
+	color = glm::vec4(float((c & 0x000000FF)), float((c & 0x0000FF00) >> 8U), float((c & 0x00FF0000) >> 16U), float((c & 0xFF000000) >> 24U));
 	normal = glm::vec3(float((n & 0x000000FF)), float((n & 0x0000FF00) >> 8U), float((n & 0x00FF0000) >> 16U));
 	color /= 255.f;
 	normal = (normal / 255.f) * 2.f - 1.f;
 }
 
- __device__ void Voxel::SetInfo(glm::vec3 color, glm::vec3 normal) {
+ __device__ void Voxel::SetInfo(glm::vec4 color, glm::vec3 normal) {
 
 	color *= 255.f;
-	c = ((uint(color.z) & 0x000000FF) << 16U | (uint(color.y) & 0x000000FF) << 8U | (uint(color.x) & 0x000000FF));
+	c = ((unsigned int(color.w) & 0x000000FF) << 24U | (uint(color.z) & 0x000000FF) << 16U | (uint(color.y) & 0x000000FF) << 8U | (uint(color.x) & 0x000000FF));
 	normal = (normal + 1.f) / 2.f * 255.f;
 	n = ((uint(normal.z) & 0x000000FF) << 16U | (uint(normal.y) & 0x000000FF) << 8U | (uint(normal.x) & 0x000000FF));
 }
 
 
 
-__device__ glm::vec3 Voxel::PhongLighting(glm::vec3 pos)
+__device__ glm::vec4 Voxel::PhongLighting(glm::vec3 pos)
 {
-	glm::vec3 c, n;
+	glm::vec4 c;
+	glm::vec3 n;
 	this->GetInfo(c, n);
 	n = glm::normalize(n);
 	glm::vec3 l = d_Info.lightPos - pos;
@@ -45,8 +46,9 @@ __device__ glm::vec3 Voxel::PhongLighting(glm::vec3 pos)
 	l /= d;
 	float dotnl = glm::dot(n, l);
 	glm::vec3 r = n * 2.f * dotnl - l, v = glm::normalize(d_Info.camPos - pos);
-	
-	return c*(d_Info.ka + att*(d_Info.kd * glm::max(0.f, dotnl) + d_Info.ks*glm::max(0.f, glm::pow(glm::dot(r,v), d_Info.alpha))));
+	float intensity = (d_Info.ka + att * (d_Info.kd * glm::max(0.f, dotnl) + 
+		d_Info.ks * glm::max(0.f, glm::pow(glm::dot(r, v), d_Info.alpha))));
+	return glm::vec4(glm::vec3(c) * intensity, c.a);
 }
 
 //transfer 3D index to 1D array index
@@ -120,7 +122,8 @@ __global__ void VoxelizationKernel(Voxel* voxelList, uint* voxelIdxList, CudaMes
 
 					glm::vec3 uvw = WorldSpaceInterpolation(v0, v1, v2, voxelPos);
 
-					glm::vec3 color(1, 1, 0), normal = glm::normalize(uvw[0] * n0 + uvw[1] * n1 + uvw[2] * n2);
+					glm::vec4 color(1, 1, 1, 1);
+					glm::vec3 normal = glm::normalize(uvw[0] * n0 + uvw[1] * n1 + uvw[2] * n2);
 					size_t arrayIdx = atomicAdd(&voxelCounter, 1);
 
 					voxelList[arrayIdx].SetInfo(color, normal);

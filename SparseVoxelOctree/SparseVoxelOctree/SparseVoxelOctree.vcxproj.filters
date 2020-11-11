@@ -33,6 +33,7 @@
       <Filter>ExternalLibs</Filter>
     </ClInclude>
     <ClInclude Include="Octree.cuh" />
+    <ClInclude Include="SkyBox.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Mesh.cpp">
@@ -48,12 +49,19 @@
     <ClCompile Include="include\InitShader.cpp">
       <Filter>ExternalLibs</Filter>
     </ClCompile>
+    <ClCompile Include="SkyBox.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shader\fs.frag">
       <Filter>Shader</Filter>
     </None>
     <None Include="shader\vs.vert">
+      <Filter>Shader</Filter>
+    </None>
+    <None Include="shader\skybox.frag">
+      <Filter>Shader</Filter>
+    </None>
+    <None Include="shader\skybox.vert">
       <Filter>Shader</Filter>
     </None>
   </ItemGroup>

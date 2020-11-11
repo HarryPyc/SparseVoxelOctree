@@ -28,7 +28,7 @@ public:
 	~Mesh() {}
 
 	void UploatToDevice(CudaMesh& cuMesh);
-	void CreateVao();
+	GLuint CreateVao();
 	void Draw();
 private:
 	GLuint vao;

@@ -11,11 +11,11 @@ public:
 	__host__ __device__ Voxel();
 	__host__ __device__ ~Voxel();
 
-	__device__ void GetInfo(glm::vec3& color, glm::vec3& normal);
-	__device__ void SetInfo(glm::vec3 color,  glm::vec3 normal);
+	__device__ void GetInfo(glm::vec4& color, glm::vec3& normal);
+	__device__ void SetInfo(glm::vec4 color,  glm::vec3 normal);
 
 	__device__ inline bool empty() { return c == 0; }
-	__device__ glm::vec3 PhongLighting(glm::vec3 pos);
+	__device__ glm::vec4 PhongLighting(glm::vec3 pos);
 
 	unsigned int c, n;
 
@@ -29,7 +29,7 @@ struct VoxelizationInfo {
 };
 
 const int WINDOW_WIDTH = 1280, WINDOW_HEIGHT = 720;
-const unsigned short voxelDim = 1024;
+const unsigned short voxelDim = 512;
 
 
 void Voxelization(CudaMesh &cuMesh, Voxel*& d_voxel, uint *& d_idx);
@@ -51,4 +51,14 @@ __device__ inline glm::uvec3 ConvUintToUvec3(unsigned int val) {
 }
 __device__ inline unsigned int ConvUvec3ToUint(glm::uvec3 val) {
 	return val.x << 22U | val.y << 12U | val.z << 2U;
+}
+
+#define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char* file, int line, bool abort = true)
+{
+	if (code != cudaSuccess)
+	{
+		fprintf(stderr, "GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+		if (abort) exit(code);
+	}
 }
