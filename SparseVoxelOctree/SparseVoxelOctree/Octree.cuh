@@ -13,6 +13,8 @@ public:
 	}
 };
 
+const uint MAX_TRACE_DEPTH = 8;
+
 void OctreeConstruction(Node*& d_node, Voxel*& d_voxel, uint* d_idx);
 void RayCastingOctree(uint* d_pbo, glm::vec3 camPos, cudaArray_t back,  Node* d_node);
 void initRayCasting();

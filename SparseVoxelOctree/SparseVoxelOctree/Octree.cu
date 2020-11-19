@@ -10,7 +10,7 @@ extern VoxelizationInfo Info;
 extern uint h_MIPMAP;
 __constant__ VoxelizationInfo d_Info;
 __constant__ uint maxLevel, curLevel, voxelCount;
-__constant__ uint start, end, MIPMAP;
+__constant__ uint start, end, MIPMAP, MAX_DEPTH;
 //__constant__ VoxelizationInfo d_Info;
 __device__ uint curIdx, traverseCounter;
 texture<float4, 2, cudaReadModeElementType> backTex;
@@ -136,7 +136,7 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel, uint* d_idx)
 	cudaMemcpyToSymbol(end, &h_curIdx, sizeof(uint));
 	cudaMemcpyToSymbol(curIdx, &h_curIdx, sizeof(uint));
 
-	cudaStatus = cudaMalloc((void**)&d_node, 2 * Info.Counter * sizeof(Node));
+	cudaStatus = cudaMalloc((void**)&d_node, 3 * Info.Counter * sizeof(Node));
 	if (cudaStatus != cudaSuccess) printf("d_Node cudaMalloc Failed\n");
 	clock_t time = clock();
 	for (uint i = 0; i < h_maxLevel; i++) {
@@ -194,7 +194,9 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel, uint* d_idx)
 }
 struct Ray {
 	glm::vec3 o, d, invD;
-	__device__ Ray(glm::vec3 origin, glm::vec3 dir) : o(origin), d(dir) {
+	uint depth; bool inside;
+	__device__ Ray(glm::vec3 origin, glm::vec3 dir, uint Depth = 0, bool Inside = false) 
+		: o(origin), d(dir), depth(Depth), inside(Inside) {
 		invD = glm::vec3(1.f) / dir;
 	}
 	__device__ ~Ray() {};
@@ -208,7 +210,7 @@ struct Ray {
 		float tmin = glm::max(-999.f, glm::max(tsmaller[0], glm::max(tsmaller[1], tsmaller[2])));
 		float tmax = glm::min(999.f, glm::min(tbigger[0], glm::min(tbigger[1], tbigger[2])));
 		t = (tmin + tmax) / 2.f;
-		return (tmin < tmax);
+		return (tmin < tmax) && tmax > 0.f;
 	}
 };
 struct HitInfo {
@@ -257,12 +259,52 @@ __device__ Voxel OctreeTraverse(Node* d_node, Node root, Ray ray, glm::vec3 minA
 		glm::vec3 _minAABB = minAABB + glm::vec3(hits[i].idx) * delta;
 		Voxel voxel = OctreeTraverse(d_node, _root, ray, _minAABB, currentLevel,  t);
 		if (!voxel.empty()) {
+			glm::vec4 c;
+			glm::vec3 n;
+			voxel.GetInfo(c, n);
+			if (ray.inside && glm::dot(ray.d, n) <= 0.f)
+				continue;
 			if (currentLevel == MIPMAP)
 				t = hits[i].t;
 			return voxel;
 		}
 	}
 	return res;
+}
+
+__device__ glm::vec4 Trace(Node* d_node, Ray ray) {
+	if(ray.depth++ > MAX_DEPTH)
+		return glm::vec4(0.f);
+	float t = 999.f;
+	Voxel voxel = OctreeTraverse(d_node, d_node[0], ray, d_Info.minAABB, 0, t);
+	if (voxel.empty()) {
+		float4 texel = texCubemap(skyBox, ray.d.x, ray.d.y, ray.d.z);
+		return glm::vec4(texel.x, texel.y, texel.z, 1.f);
+	}
+	else {
+		glm::vec4 color;
+		glm::vec3 n;
+		voxel.GetInfo(color, n);
+		const float nc = 1.0f, ng = 1.5f;
+		bool inside = dot(ray.d, n) > 0;
+		n = inside ? -n: n;
+		float eta = inside ? ng / nc : nc / ng, R0 = (nc - ng) / (nc + ng), c = glm::abs(glm::dot(ray.d, n));
+		R0 *= R0;
+		float k = 1.0 - eta * eta * (1.0f - c * c);
+		
+		glm::vec3 offset = n * d_Info.delta / float((1 << (MIPMAP))) *2.f; //avoid self-collision
+		glm::vec3 pos = ray.o + t * ray.d; 
+		Ray refl_ray(pos + offset, glm::reflect(ray.d, n), ray.depth, inside);
+		if (k < 0.f) {
+			return color * Trace(d_node, refl_ray);
+		}
+		else {
+			float Re = R0 + (1 - R0) * pow(1.f - c, 5);
+			glm::vec3 dir = (eta * ray.d - (eta * glm::dot(n, ray.d) + sqrt(k)) * n);
+			Ray refract_ray(pos - offset, dir, ray.depth, inside);
+			return color * (Trace(d_node, refract_ray)*(1.f-Re)); // + Trace(d_node, refl_ray) * Re
+		}
+	}
 }
 __global__ void RayCastKernel(uint* d_pbo, Node* d_node, const uint w, const uint h) {
 	const unsigned int x = blockDim.x * blockIdx.x + threadIdx.x,
@@ -273,18 +315,18 @@ __global__ void RayCastKernel(uint* d_pbo, Node* d_node, const uint w, const uin
 	float4 backSample = tex2D(backTex, u, v);
 		
 	glm::vec3 dir = glm::normalize(glm::vec3(backSample.x, backSample.y, backSample.z));
-	Ray ray(d_Info.camPos, dir);
+	Ray ray(d_Info.camPos, dir, 0);
 
-	glm::vec4 color;
-	glm::vec3 pos;
-	float t = 999.f;
-	Voxel voxel = OctreeTraverse(d_node, d_node[0], ray, d_Info.minAABB, 0, t);
-	pos = ray.o + t * ray.d;
-	color = voxel.PhongLighting(pos);
-	float4 texel = texCubemap(skyBox, dir.x, dir.y, dir.z);
-	glm::vec3 backGround(texel.x, texel.y, texel.z);
-	glm::vec3 res = glm::vec3(color) * color.a + backGround * (1.f - color.a);
-	d_pbo[y * w + x] = ConvVec4ToUint(glm::vec4(res, 1));
+	glm::vec4 color(0.f);
+	float t;
+	if (ray.RayAABBIntersection(d_Info.minAABB, d_Info.minAABB + d_Info.delta, t)) {
+		color = Trace(d_node, ray);
+	}
+	else {
+		float4 texel = texCubemap(skyBox, dir.x, dir.y, dir.z);
+		color = glm::vec4(texel.x, texel.y, texel.z, 1.f);
+	}
+	d_pbo[y * w + x] = ConvVec4ToUint(color);
 
 }
 
@@ -369,8 +411,8 @@ void initRayCasting()
 	//size_t offset = 0;
 	//cudaStatus = cudaBindTexture(&offset, &octree, d_node, &format, octree_size);
 	//if (cudaStatus != cudaSuccess) printf("cudaBindTexture Failed, error: %s\n", cudaGetErrorString(cudaStatus));
-	gpuErrchk(cudaDeviceSetLimit(cudaLimitStackSize, 1024 * 8));
-
+	gpuErrchk(cudaDeviceSetLimit(cudaLimitStackSize, 1024 * 16));
+	gpuErrchk(cudaMemcpyToSymbol(MAX_DEPTH, &MAX_TRACE_DEPTH, sizeof(uint)));
 }
 
 

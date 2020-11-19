@@ -27,6 +27,7 @@ CudaMesh cuMesh;
 extern VoxelizationInfo Info;
 VoxelizationInfo Info;
 uint h_MIPMAP = 0;
+bool pause = true;
 
 void error_callback(int error, const char* description)
 {
@@ -166,6 +167,9 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 			h_MIPMAP = maxLevel - 6; break;
 		case GLFW_KEY_7:
 			h_MIPMAP = maxLevel - 7; break;
+		case GLFW_KEY_P:
+			pause = !pause;
+			break;
 		}
 	}
 }
@@ -199,7 +203,8 @@ int main() {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
 		t = clock();
-		cam.pos = glm::vec3(glm::rotate(glm::radians(1.f), cam.up) * glm::vec4(cam.pos, 1.f));
+		if(!pause)
+			cam.pos = glm::vec3(glm::rotate(glm::radians(1.f), cam.up) * glm::vec4(cam.pos, 1.f));
 		cam.UpdateViewMatrix();
 		Info.camPos = cam.pos;
 

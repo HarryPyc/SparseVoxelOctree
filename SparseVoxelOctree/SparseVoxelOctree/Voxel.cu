@@ -122,7 +122,7 @@ __global__ void VoxelizationKernel(Voxel* voxelList, uint* voxelIdxList, CudaMes
 
 					glm::vec3 uvw = WorldSpaceInterpolation(v0, v1, v2, voxelPos);
 
-					glm::vec4 color(1, 1, 1, 1);
+					glm::vec4 color(0.9f);
 					glm::vec3 normal = glm::normalize(uvw[0] * n0 + uvw[1] * n1 + uvw[2] * n2);
 					size_t arrayIdx = atomicAdd(&voxelCounter, 1);
 
@@ -235,11 +235,11 @@ void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel, uint*& d_idx)
 	cudaStatus = cudaMemcpyToSymbol(voxelCounter, &Info.Counter, sizeof(uint));
 	if (cudaStatus != cudaSuccess) printf("counter cudaMemcpy Failed\n");
 
-	size_t voxelSize = voxelDim * voxelDim * voxelDim / 4 * sizeof(Voxel);
+	size_t voxelSize = voxelDim * voxelDim * voxelDim * sizeof(Voxel);
 
 	cudaStatus = cudaMalloc((void**)&d_voxel, voxelSize);
 	if (cudaStatus != cudaSuccess) printf("d_voxel cudaMalloc Failed\n");
-	cudaStatus = cudaMalloc((void**)&d_idx, voxelDim * voxelDim * voxelDim / 4 * sizeof(uint));
+	cudaStatus = cudaMalloc((void**)&d_idx, voxelDim * voxelDim * voxelDim * sizeof(uint));
 	if (cudaStatus != cudaSuccess) printf("d_idx cudaMalloc Failed\n");
 	
 	clock_t t;
