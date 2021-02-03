@@ -9,6 +9,7 @@ void Mesh::UploatToDevice(CudaMesh &cuMesh)
 {
 	cuMesh.triNum = data.faces["default"].size() / 3;
 	printf("Mesh Triangle Count: %i\n", cuMesh.triNum);
+	cuMesh.vertNum = data.vertex.size();
 	size_t vert_size = data.vertex.size() * sizeof(float), normal_size = data.normal.size() * sizeof(float),
 		index_size = data.faces["default"].size() * sizeof(unsigned );
 	cudaError_t cudaStatus;

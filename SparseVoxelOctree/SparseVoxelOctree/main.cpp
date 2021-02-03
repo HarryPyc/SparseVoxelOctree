@@ -18,9 +18,9 @@ Voxel* d_voxel = NULL; unsigned int* d_idx = NULL; Node* d_node = NULL;
 GLFWwindow* window; uint WIDTH = WINDOW_WIDTH, HEIGHT = WINDOW_HEIGHT;
 GLuint shader, pbo, textureID;
 cudaGraphicsResource_t frontCuda, backCuda, pboCuda;
-Camera cam(WINDOW_WIDTH, WINDOW_HEIGHT, 3.1415926f / 3.f, glm::vec3(1.5f, 0.8f, 0.f), glm::vec3(0.f, 0.0f, 0.f));
+Camera cam(WINDOW_WIDTH, WINDOW_HEIGHT, 3.1415926f / 3.f, glm::vec3(2.f, 0.8f, 0.f), glm::vec3(0.f, 0.0f, 0.f));
 FrameBuffer *back;
-//870K triangle dragon
+
 Mesh Cube("asset/model/cube.obj");
 Scene scene;
 extern VoxelizationInfo Info;
@@ -80,8 +80,8 @@ void initInfo() {
 	Info.delta = glm::max(l.x, glm::max(l.y, l.z));
 	Info.minAABB = (_minAABB + _maxAABB) / 2.f - Info.delta / 2.f;
 	Info.camPos = cam.pos;
-	Info.lightPos = glm::vec3(0.f, 2.f, 2.f);
-	Info.ka = 0.2f, Info.kd = 1.0f, Info.ks = 1.0f;
+	Info.lightPos = glm::vec3(0.5f, 0.5f, 0.f);
+	Info.ka = 0.2f, Info.kd = 0.4f, Info.ks = 0.4f;
 	Info.alpha = 5.f;
 	Info.Dim = voxelDim;
 	h_MIPMAP = glm::log2(voxelDim);

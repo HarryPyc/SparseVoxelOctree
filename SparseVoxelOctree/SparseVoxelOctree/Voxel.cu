@@ -6,6 +6,7 @@ extern VoxelizationInfo Info;
 extern __constant__ VoxelizationInfo d_Info;
 //texture<float4, 2, cudaReadModeElementType> frontTex, backTex;
 __device__ uint voxelCounter;
+__constant__ CudaMesh mesh;
 
 __host__ __device__ Voxel::Voxel()
 {
@@ -93,7 +94,7 @@ __device__ inline bool VoxelTriangleIntersection(Triangle tri, glm::vec3 vMinAAB
 	return xy || xz || yz;
 }
 
-__global__ void VoxelizationKernel(Voxel* voxelList, uint* voxelIdxList, CudaMesh mesh) {
+__global__ void VoxelizationKernel(Voxel* voxelList, uint* voxelIdxList) {
 
 	const unsigned idx = blockDim.x * blockIdx.x + threadIdx.x;
 	if (idx >= mesh.triNum) return;
@@ -134,8 +135,16 @@ __global__ void VoxelizationKernel(Voxel* voxelList, uint* voxelIdxList, CudaMes
 
 
 }
-
-__global__ void PreProcessTriangleKernel(CudaMesh mesh) {
+__global__ void TransformKernel() {
+	const unsigned idx = blockDim.x * blockIdx.x + threadIdx.x;
+	if (idx >= mesh.vertNum / 3) return;
+	glm::vec4 v(mesh.d_v[3 * idx], mesh.d_v[3 * idx + 1], mesh.d_v[3 * idx + 2], 1.f);
+	v = mesh.M * v;
+	mesh.d_v[3 * idx] = v.x;
+	mesh.d_v[3 * idx + 1] = v.y;
+	mesh.d_v[3 * idx + 2] = v.z;
+}
+__global__ void PreProcessTriangleKernel() {
 	const unsigned idx = blockDim.x * blockIdx.x + threadIdx.x;
 	if (idx >= mesh.triNum) return;
 	Triangle tri;
@@ -144,6 +153,7 @@ __global__ void PreProcessTriangleKernel(CudaMesh mesh) {
 	v[0] = glm::vec3(mesh.d_v[3 * tri.i0], mesh.d_v[3 * tri.i0 + 1], mesh.d_v[3 * tri.i0 + 2]);
 	v[1] = glm::vec3(mesh.d_v[3 * tri.i1], mesh.d_v[3 * tri.i1 + 1], mesh.d_v[3 * tri.i1 + 2]);
 	v[2] = glm::vec3(mesh.d_v[3 * tri.i2], mesh.d_v[3 * tri.i2 + 1], mesh.d_v[3 * tri.i2 + 2]);
+
 	const glm::vec3 e[3] = { v[1] - v[0], v[2] - v[1], v[0] - v[2] };
 	const float delta = d_Info.delta / (float)d_Info.Dim;
 	//Pre-compute parameters for voxel triangle intersection
@@ -214,59 +224,49 @@ __global__ void PreProcessTriangleKernel(CudaMesh mesh) {
 //}
 
 void InitVoxelization(Voxel*& d_voxel, uint*& d_idx) {
-	cudaError_t cudaStatus;
-	cudaStatus = cudaMemcpyToSymbol(voxelCounter, &Info.Counter, sizeof(uint));
-	if (cudaStatus != cudaSuccess) printf("counter cudaMemcpy Failed\n");
+	gpuErrchk(cudaMemcpyToSymbol(voxelCounter, &Info.Counter, sizeof(uint)));
 
 	size_t voxelSize = voxelDim * voxelDim * voxelDim * sizeof(Voxel);
 
-	cudaStatus = cudaMalloc((void**)&d_voxel, voxelSize);
-	if (cudaStatus != cudaSuccess) printf("d_voxel cudaMalloc Failed\n");
-	cudaStatus = cudaMalloc((void**)&d_idx, voxelDim * voxelDim * voxelDim * sizeof(uint));
-	if (cudaStatus != cudaSuccess) printf("d_idx cudaMalloc Failed\n");
+	gpuErrchk(cudaMalloc((void**)&d_voxel, voxelSize));
+	gpuErrchk(cudaMalloc((void**)&d_idx, voxelDim * voxelDim * voxelDim * sizeof(uint)));
 }
 void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel, uint*& d_idx)
 {
-	if (cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)) != cudaSuccess)
-		printf("cudaMemcpy to constant failed\n");
-
-	cudaError_t cudaStatus;
+	gpuErrchk(cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)));
 	//PreProcess Triangle
-	cudaStatus = cudaMalloc((void**)&cuMesh.d_tri, cuMesh.triNum * sizeof(Triangle));
-	if (cudaStatus != cudaSuccess) printf("d_tri cudaMalloc Failed\n");
-	dim3 blockDim = 256, gridDim = cuMesh.triNum / blockDim.x + 1;
-	PreProcessTriangleKernel <<< gridDim, blockDim >>> (cuMesh);
-	cudaStatus = cudaGetLastError();
-	if (cudaStatus != cudaSuccess) printf("PreprocessTriangle Launch Kernel Failed\n");
-	cudaStatus = cudaDeviceSynchronize();
-	if (cudaStatus != cudaSuccess) printf("cudaDeviceSynchronize Failed\n");
-	cudaStatus = cudaFree(cuMesh.d_idx);
-	if (cudaStatus != cudaSuccess) printf("d_idx cudaFree Failed, error: %s\n", cudaGetErrorString(cudaStatus));
-	
+	gpuErrchk(cudaMalloc((void**)&cuMesh.d_tri, cuMesh.triNum * sizeof(Triangle)));
+	gpuErrchk(cudaMemcpyToSymbol(mesh, &cuMesh, sizeof(CudaMesh)));
+
+	dim3 blockDim = 256, gridDim = cuMesh.vertNum / blockDim.x + 1;
+	TransformKernel << <gridDim, blockDim >> > ();
+	gpuErrchk(cudaGetLastError());
+	gpuErrchk(cudaDeviceSynchronize());
+
+	blockDim = 256, gridDim = cuMesh.triNum / blockDim.x + 1;
+	PreProcessTriangleKernel <<< gridDim, blockDim >>> ();
+	gpuErrchk(cudaGetLastError());
+	gpuErrchk(cudaDeviceSynchronize());
+	gpuErrchk(cudaFree(cuMesh.d_idx));
+
 	clock_t t;
 
 	t = clock();
-	VoxelizationKernel << <gridDim, blockDim >> > (d_voxel, d_idx, cuMesh);
-	cudaStatus = cudaGetLastError();
-	if (cudaStatus != cudaSuccess) printf("cuda Launch Kernel Failed\n");
-	cudaStatus = cudaDeviceSynchronize();
-	if (cudaStatus != cudaSuccess) printf("cudaDeviceSynchronize Failed\n");
+	VoxelizationKernel << <gridDim, blockDim >> > (d_voxel, d_idx);
+	gpuErrchk(cudaGetLastError());
+	gpuErrchk(cudaDeviceSynchronize());
+
 	t = clock() - t;
 	printf("Voxelization finished, time : %f\n", (float)t / CLOCKS_PER_SEC);	
 
-	cudaStatus = cudaMemcpyFromSymbol(&Info.Counter, voxelCounter, sizeof(uint));
-	if (cudaStatus != cudaSuccess) printf("counter cudaMemcpyFromSymbol Failed\n");
+	gpuErrchk(cudaMemcpyFromSymbol(&Info.Counter, voxelCounter, sizeof(uint)));
 	printf("Voxel Count: %i\n", Info.Counter);
 
 	//Free CudaMesh
-	cudaStatus = cudaFree(cuMesh.d_v);
-	if (cudaStatus != cudaSuccess) printf("d_v cudaFree Failed, error: %s\n", cudaGetErrorString(cudaStatus));
-	cudaStatus = cudaFree(cuMesh.d_n);
-	if (cudaStatus != cudaSuccess) printf("d_n cudaFree Failed, error: %s\n", cudaGetErrorString(cudaStatus));
-	cudaStatus = cudaFree(cuMesh.d_tri);
-	if (cudaStatus != cudaSuccess) printf("d_tri cudaFree Failed, error: %s\n", cudaGetErrorString(cudaStatus));
-	
-	//initCudaTexture();
+	gpuErrchk(cudaFree(cuMesh.d_v));
+	gpuErrchk(cudaFree(cuMesh.d_n));
+	gpuErrchk(cudaFree(cuMesh.d_tri));
+
 }
 
 //void RunRayMarchingKernel(uint* d_pbo, cudaArray_t front, cudaArray_t back, Voxel* d_voxel)

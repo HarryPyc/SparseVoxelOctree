@@ -33,7 +33,9 @@
       <Filter>ExternalLibs</Filter>
     </ClInclude>
     <ClInclude Include="Octree.cuh" />
-    <ClInclude Include="Scene.h" />
+    <ClInclude Include="Scene.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Mesh.cpp">
@@ -49,7 +51,9 @@
     <ClCompile Include="include\InitShader.cpp">
       <Filter>ExternalLibs</Filter>
     </ClCompile>
-    <ClCompile Include="Scene.cpp" />
+    <ClCompile Include="Scene.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="shader\fs.frag">

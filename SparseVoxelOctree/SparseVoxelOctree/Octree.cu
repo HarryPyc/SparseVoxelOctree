@@ -145,16 +145,13 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel, uint* d_idx)
 		//Mark Node that need to be subdivied
 		dim3 blockDim = 256, gridDim = Info.Counter / blockDim.x + 1;
 		MarkKernel << <gridDim, blockDim >> > (d_node, d_idx);
-		cudaStatus = cudaGetLastError();
-		if (cudaStatus != cudaSuccess) printf("MarkKernel launch Failed, error: %s\n", cudaGetErrorString(cudaStatus));
-		cudaStatus = cudaDeviceSynchronize();
-		if (cudaStatus != cudaSuccess) printf("MarkKernel cudaDeviceSynchronize Failed\n");
+		gpuErrchk(cudaGetLastError());
+		gpuErrchk(cudaDeviceSynchronize());
 		//Allocate new node from node pool
 		gridDim = (h_curIdx - h_start) / blockDim.x + 1;
 		AllocateKernel << <gridDim, blockDim >> > (d_node);
-		if (cudaStatus != cudaSuccess) printf("AllocateKernel launch Failed, error: %s\n", cudaGetErrorString(cudaStatus));
-		cudaStatus = cudaDeviceSynchronize();
-		if (cudaStatus != cudaSuccess) printf("AllocateKernel cudaDeviceSynchronize Failed\n");
+		gpuErrchk(cudaGetLastError());
+		gpuErrchk(cudaDeviceSynchronize());
 		h_start = h_curIdx;
 		cudaMemcpyFromSymbol(&h_curIdx, curIdx, sizeof(uint));
 		cudaMemcpyToSymbol(start, &h_start, sizeof(uint));
@@ -165,14 +162,11 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel, uint* d_idx)
 	//Copy voxel to leaf node
 	dim3 blockDim = 256, gridDim = Info.Counter / blockDim.x + 1;
 	MemcpyVoxelToLeafNodeKernel << <gridDim, blockDim >> > (d_node, d_voxel, d_idx);
-	if (cudaStatus != cudaSuccess) printf("MemcpyVoxelToLeafNodeKernel launch Failed, error: %s\n", cudaGetErrorString(cudaStatus));
-	cudaStatus = cudaDeviceSynchronize();
-	if (cudaStatus != cudaSuccess) printf("MemcpyVoxelToLeafNodeKernel cudaDeviceSynchronize Failed\n");
-	cudaStatus = cudaFree(d_voxel);
-	if (cudaStatus != cudaSuccess) printf("d_voxel cudaFree Failed\n");
-	cudaStatus = cudaFree(d_idx);
-	if (cudaStatus != cudaSuccess) printf("d_idx cudaFree Failed\n");
-
+	gpuErrchk(cudaGetLastError());
+	gpuErrchk(cudaDeviceSynchronize());
+	gpuErrchk(cudaFree(d_voxel));
+	gpuErrchk(cudaFree(d_idx));
+	
 	//Mimmap voxel value from bottom to up
 	for (int i = h_maxLevel - 1; i >= 0; i--) {
 		cudaMemcpyToSymbol(curLevel, &i, 4);
@@ -181,9 +175,8 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel, uint* d_idx)
 
 		gridDim = (endArr[i] - startArr[i]) / blockDim.x + 1;
 		MimmapKernel << <gridDim, blockDim >> > (d_node, d_voxel);
-		if (cudaStatus != cudaSuccess) printf("MimmapKernel launch Failed, error: %s\n", cudaGetErrorString(cudaStatus));
-		cudaStatus = cudaDeviceSynchronize();
-		if (cudaStatus != cudaSuccess) printf("MimmapKernel cudaDeviceSynchronize Failed\n");
+		gpuErrchk(cudaGetLastError());
+		gpuErrchk(cudaDeviceSynchronize());
 	}
 	time = clock() - time;
 	printf("Octree Constructed, time: %f\n", float(time) / CLOCKS_PER_SEC);
@@ -310,29 +303,25 @@ __global__ void RayCastKernel(uint* d_pbo, Node* d_node, const uint w, const uin
 
 void RayCastingOctree(uint* d_pbo, glm::vec3 h_camPos, cudaArray_t back, Node* d_node)
 {
-	if (cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)) != cudaSuccess)
-		printf("cudaMemcpy to constant failed\n");
+	gpuErrchk(cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)));
+
 	cudaMemcpyToSymbol(MIPMAP, &h_MIPMAP, 4);
 	uint h_tCounter = 0;
 	cudaMemcpyToSymbol(traverseCounter, &h_tCounter, 4);
 
 	cudaChannelFormatDesc format = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
-	cudaError_t cudaStatus;
-	if (cudaBindTextureToArray(&backTex, back, &format) != cudaSuccess)
-		printf("back texture bind failed\n");
+
+	gpuErrchk(cudaBindTextureToArray(&backTex, back, &format));
+
 	//launch cuda kernel
 	dim3 blockDim(16, 16, 1), gridDim(WINDOW_WIDTH / blockDim.x + 1, WINDOW_HEIGHT / blockDim.y + 1, 1);
 	RayCastKernel << <gridDim, blockDim >> > (d_pbo, d_node, WINDOW_WIDTH, WINDOW_HEIGHT);
-	cudaStatus = cudaGetLastError();
-	if (cudaStatus != cudaSuccess) printf("raymarching cuda Launch Kernel Failed\n");
-	cudaStatus = cudaDeviceSynchronize();
-	if(cudaStatus != cudaSuccess)
-		printf("raymarching cudaDeviceSynchronize Failed, error: %s\n", cudaGetErrorString(cudaStatus));
+	gpuErrchk(cudaGetLastError());
+	gpuErrchk(cudaDeviceSynchronize());
 
 	cudaMemcpyFromSymbol(&h_tCounter, traverseCounter, 4);
 	//printf("Traverse Count: %u\n", h_tCounter);
-	if (cudaUnbindTexture(backTex) != cudaSuccess)
-		printf("cuda unbind texture failed\n");
+	gpuErrchk(cudaUnbindTexture(backTex));
 }
 
 void initSkyBox() {

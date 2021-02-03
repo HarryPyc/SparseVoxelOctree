@@ -16,7 +16,8 @@ struct CudaMesh {
 	unsigned int* d_idx;
 	Triangle* d_tri;
 	unsigned triNum;
-	glm::vec3 color;
+	glm::vec3 color; unsigned vertNum;
+	glm::mat4 M;
 };
 class Mesh
 {
