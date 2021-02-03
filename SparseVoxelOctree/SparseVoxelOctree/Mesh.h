@@ -16,6 +16,7 @@ struct CudaMesh {
 	unsigned int* d_idx;
 	Triangle* d_tri;
 	unsigned triNum;
+	glm::vec3 color;
 };
 class Mesh
 {
@@ -25,7 +26,8 @@ public:
 	glm::mat4 M;
 
 	Mesh(const std::string& path);
-	~Mesh() {}
+	Mesh() {}
+	~Mesh() { glDeleteVertexArrays(1, &vao); }
 
 	void UploatToDevice(CudaMesh& cuMesh);
 	GLuint CreateVao();

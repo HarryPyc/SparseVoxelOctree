@@ -8,22 +8,21 @@
 #include <stdio.h>
 #include <time.h>
 #include <InitShader.h>
-#include "Mesh.h"
 #include "Voxel.cuh"
 #include "Octree.cuh"
 #include "Camera.h"
 #include "FrameBuffer.h"
-
+#include "Scene.h"
 
 Voxel* d_voxel = NULL; unsigned int* d_idx = NULL; Node* d_node = NULL;
 GLFWwindow* window; uint WIDTH = WINDOW_WIDTH, HEIGHT = WINDOW_HEIGHT;
 GLuint shader, pbo, textureID;
 cudaGraphicsResource_t frontCuda, backCuda, pboCuda;
-Camera cam(WINDOW_WIDTH, WINDOW_HEIGHT, 3.1415926f / 3.f, glm::vec3(0, 0.7f, 1.5f), glm::vec3(0.f, 0.5f, 0.f));
+Camera cam(WINDOW_WIDTH, WINDOW_HEIGHT, 3.1415926f / 3.f, glm::vec3(1.5f, 0.8f, 0.f), glm::vec3(0.f, 0.0f, 0.f));
 FrameBuffer *back;
 //870K triangle dragon
-Mesh mesh("asset/model/happy.obj"), Cube("asset/model/cube.obj");
-CudaMesh cuMesh; 
+Mesh Cube("asset/model/cube.obj");
+Scene scene;
 extern VoxelizationInfo Info;
 VoxelizationInfo Info;
 uint h_MIPMAP = 0;
@@ -72,8 +71,10 @@ void initOpenGL() {
 }
 void initInfo() {
 	//Reconstruct AABB
-	glm::vec3 _minAABB = glm::vec3(mesh.data.min[0], mesh.data.min[1], mesh.data.min[2]);
-	glm::vec3 _maxAABB = glm::vec3(mesh.data.max[0], mesh.data.max[1], mesh.data.max[2]);
+	glm::vec3 _minAABB = glm::vec3(scene.static_mesh->data.min[0], scene.static_mesh->data.min[1], scene.static_mesh->data.min[2]);
+	glm::vec3 _maxAABB = glm::vec3(scene.static_mesh->data.max[0], scene.static_mesh->data.max[1], scene.static_mesh->data.max[2]);
+	_minAABB -= 0.1f;
+	_maxAABB += 0.1f;//Small Offset
 	glm::vec3 l = _maxAABB - _minAABB;
 	printf("Mesh AABB size: %f\n", glm::length(_maxAABB - _minAABB));
 	Info.delta = glm::max(l.x, glm::max(l.y, l.z));
@@ -86,7 +87,7 @@ void initInfo() {
 	h_MIPMAP = glm::log2(voxelDim);
 }
 void init() {
-	mesh.UploatToDevice(cuMesh);
+	scene.Upload();
 	Cube.CreateVao();
 	//Cube.M = glm::translate(Info.minAABB + Info.delta/2.f) * glm::scale(glm::vec3(Info.delta / 2.f));
 	back = new FrameBuffer(WINDOW_WIDTH, WINDOW_HEIGHT);
@@ -98,7 +99,7 @@ void init() {
 	back->BindToDevice(backCuda);
 	if (cudaGraphicsGLRegisterBuffer(&pboCuda, pbo, cudaGraphicsRegisterFlagsNone) != cudaSuccess)
 		printf("cuda bind pbo failed\n");
-
+	InitVoxelization(d_voxel, d_idx);
 }
 void display() {
 	glUseProgram(0);
@@ -192,7 +193,7 @@ int main() {
 	glfwSetKeyCallback(window, key_callback);
 	glfwSetFramebufferSizeCallback(window, resize_callback);
 
-	Voxelization(cuMesh, d_voxel, d_idx);
+	scene.SceneVoxelization(d_voxel, d_idx);
 	OctreeConstruction(d_node, d_voxel, d_idx);
 	initRayCasting();
 	clock_t t;

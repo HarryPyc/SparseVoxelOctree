@@ -87,12 +87,12 @@ __global__ void MimmapKernel(Node* d_node, Voxel* d_voxel) {
 	const Node root = d_node[x];
 	if (root.ptr == NULLPTR) return;
 
-	glm::vec4 color(0.f);
+	glm::vec3 color(0.f);
 	glm::vec3 normal(0.f);
 	float counter = 0.f;
 	uint bitMask = 0;
 	for (uint i = 0; i < 8; i++) {
-		glm::vec4 c;
+		glm::vec3 c;
 		glm::vec3 n;
 		Voxel voxel = d_node[root.ptr + i].voxel;
 		if (!voxel.empty()) {
@@ -259,7 +259,7 @@ __device__ Voxel OctreeTraverse(Node* d_node, Node root, Ray ray, glm::vec3 minA
 		glm::vec3 _minAABB = minAABB + glm::vec3(hits[i].idx) * delta;
 		Voxel voxel = OctreeTraverse(d_node, _root, ray, _minAABB, currentLevel,  t);
 		if (!voxel.empty()) {
-			glm::vec4 c;
+			glm::vec3 c;
 			glm::vec3 n;
 			voxel.GetInfo(c, n);
 			if (ray.inside && glm::dot(ray.d, n) <= 0.f)
@@ -272,40 +272,6 @@ __device__ Voxel OctreeTraverse(Node* d_node, Node root, Ray ray, glm::vec3 minA
 	return res;
 }
 
-__device__ glm::vec4 Trace(Node* d_node, Ray ray) {
-	if(ray.depth++ > MAX_DEPTH)
-		return glm::vec4(0.f);
-	float t = 999.f;
-	Voxel voxel = OctreeTraverse(d_node, d_node[0], ray, d_Info.minAABB, 0, t);
-	if (voxel.empty()) {
-		float4 texel = texCubemap(skyBox, ray.d.x, ray.d.y, ray.d.z);
-		return glm::vec4(texel.x, texel.y, texel.z, 1.f);
-	}
-	else {
-		glm::vec4 color;
-		glm::vec3 n;
-		voxel.GetInfo(color, n);
-		const float nc = 1.0f, ng = 1.5f;
-		bool inside = dot(ray.d, n) > 0;
-		n = inside ? -n: n;
-		float eta = inside ? ng / nc : nc / ng, R0 = (nc - ng) / (nc + ng), c = glm::abs(glm::dot(ray.d, n));
-		R0 *= R0;
-		float k = 1.0 - eta * eta * (1.0f - c * c);
-		
-		glm::vec3 offset = n * d_Info.delta / float((1 << (MIPMAP))) *2.f; //avoid self-collision
-		glm::vec3 pos = ray.o + t * ray.d; 
-		Ray refl_ray(pos + offset, glm::reflect(ray.d, n), ray.depth, inside);
-		if (k < 0.f) {
-			return color * Trace(d_node, refl_ray);
-		}
-		else {
-			float Re = R0 + (1 - R0) * pow(1.f - c, 5);
-			glm::vec3 dir = (eta * ray.d - (eta * glm::dot(n, ray.d) + sqrt(k)) * n);
-			Ray refract_ray(pos - offset, dir, ray.depth, inside);
-			return color * (Trace(d_node, refract_ray)*(1.f-Re)); // + Trace(d_node, refl_ray) * Re
-		}
-	}
-}
 __global__ void RayCastKernel(uint* d_pbo, Node* d_node, const uint w, const uint h) {
 	const unsigned int x = blockDim.x * blockIdx.x + threadIdx.x,
 			y = blockDim.y * blockIdx.y + threadIdx.y;
@@ -317,16 +283,27 @@ __global__ void RayCastKernel(uint* d_pbo, Node* d_node, const uint w, const uin
 	glm::vec3 dir = glm::normalize(glm::vec3(backSample.x, backSample.y, backSample.z));
 	Ray ray(d_Info.camPos, dir, 0);
 
-	glm::vec4 color(0.f);
+	glm::vec3 color(0.f);
 	float t;
 	if (ray.RayAABBIntersection(d_Info.minAABB, d_Info.minAABB + d_Info.delta, t)) {
-		color = Trace(d_node, ray);
+		t = 999.f;
+		Voxel voxel = OctreeTraverse(d_node, d_node[0], ray, d_Info.minAABB, 0, t);
+		glm::vec3 pos = ray.o + t * ray.d;
+		if(!voxel.empty())
+			color = voxel.PhongLighting(pos);
+		else {
+			float4 texel = texCubemap(skyBox, dir.x, dir.y, dir.z);
+			color = glm::vec4(texel.x, texel.y, texel.z, 1.f);
+		}
+
 	}
 	else {
 		float4 texel = texCubemap(skyBox, dir.x, dir.y, dir.z);
-		color = glm::vec4(texel.x, texel.y, texel.z, 1.f);
+		color = glm::vec3(texel.x, texel.y, texel.z);
 	}
-	d_pbo[y * w + x] = ConvVec4ToUint(color);
+	//Gamma Correction
+	color = glm::pow(color, glm::vec3(1.f / 2.2f));
+	d_pbo[y * w + x] = ConvVec4ToUint(glm::vec4(color, 1.f));
 
 }
 

@@ -11,11 +11,11 @@ public:
 	__host__ __device__ Voxel();
 	__host__ __device__ ~Voxel();
 
-	__device__ void GetInfo(glm::vec4& color, glm::vec3& normal);
-	__device__ void SetInfo(glm::vec4 color,  glm::vec3 normal);
+	__device__ void GetInfo(glm::vec3& color, glm::vec3& normal);
+	__device__ void SetInfo(glm::vec3 color,  glm::vec3 normal);
 
 	__device__ inline bool empty() { return c == 0; }
-	__device__ glm::vec4 PhongLighting(glm::vec3 pos);
+	__device__ glm::vec3 PhongLighting(glm::vec3 pos);
 
 	unsigned int c, n;
 
@@ -29,9 +29,9 @@ struct VoxelizationInfo {
 };
 
 const int WINDOW_WIDTH = 1280, WINDOW_HEIGHT = 720;
-const unsigned short voxelDim = 512;
+const unsigned short voxelDim = 256;
 
-
+void InitVoxelization(Voxel*& d_voxel, uint*& d_idx);
 void Voxelization(CudaMesh &cuMesh, Voxel*& d_voxel, uint *& d_idx);
 //void RunRayMarchingKernel(uint* d_pbo, cudaArray_t front, cudaArray_t back, Voxel* d_voxel);
 

@@ -96,6 +96,7 @@
     <ClInclude Include="include\InitShader.h" />
     <ClInclude Include="Mesh.h" />
     <ClInclude Include="Octree.cuh" />
+    <ClInclude Include="Scene.h" />
     <ClInclude Include="Voxel.cuh" />
   </ItemGroup>
   <ItemGroup>
@@ -104,6 +105,7 @@
     <ClCompile Include="include\InitShader.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Mesh.cpp" />
+    <ClCompile Include="Scene.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shader\fs.frag" />
