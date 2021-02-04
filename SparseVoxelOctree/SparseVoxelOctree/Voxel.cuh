@@ -31,6 +31,7 @@ struct VoxelizationInfo {
 const int WINDOW_WIDTH = 1280, WINDOW_HEIGHT = 720;
 const unsigned short voxelDim = 256;
 
+void PreProcess(CudaMesh& cuMesh);
 void InitVoxelization(Voxel*& d_voxel, uint*& d_idx);
 void Voxelization(CudaMesh &cuMesh, Voxel*& d_voxel, uint *& d_idx);
 //void RunRayMarchingKernel(uint* d_pbo, cudaArray_t front, cudaArray_t back, Voxel* d_voxel);

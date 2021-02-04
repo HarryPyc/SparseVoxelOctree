@@ -99,7 +99,7 @@ void init() {
 	back->BindToDevice(backCuda);
 	if (cudaGraphicsGLRegisterBuffer(&pboCuda, pbo, cudaGraphicsRegisterFlagsNone) != cudaSuccess)
 		printf("cuda bind pbo failed\n");
-	InitVoxelization(d_voxel, d_idx);
+
 }
 void display() {
 	glUseProgram(0);
@@ -193,37 +193,39 @@ int main() {
 	glfwSetKeyCallback(window, key_callback);
 	glfwSetFramebufferSizeCallback(window, resize_callback);
 
-	scene.SceneVoxelization(d_voxel, d_idx);
-	OctreeConstruction(d_node, d_voxel, d_idx);
 	initRayCasting();
-	clock_t t;
+
+
+	clock_t t = clock();
 	float t_total = 0.f, frames = 0.f;
 	std::string title;
 	//Display
 	while (!glfwWindowShouldClose(window)) {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
-		t = clock();
+
 		if(!pause)
 			cam.pos = glm::vec3(glm::rotate(glm::radians(1.f), cam.up) * glm::vec4(cam.pos, 1.f));
 		cam.UpdateViewMatrix();
 		Info.camPos = cam.pos;
 
+		scene.SceneVoxelization(d_voxel, d_idx);
+		OctreeConstruction(d_node, d_voxel, d_idx);
 		glUseProgram(shader);
 		cam.upload(shader);
 		RayMarching();
 		display();
-		t = clock() - t;
-		float fps = 1.f / ((float)t / CLOCKS_PER_SEC);
-		title = "Fps: " + std::to_string(fps);
-		//if (frames++ > 5.f) {
-		//	t_total += (float)t;
-		//	if (frames == 105.f) {
-		//		printf("Computation time: %f\n", t_total / 100.f / CLOCKS_PER_SEC);
-		//		frames = 0.f; t_total = 0.f;
-		//	}
-		//}
-		glfwSetWindowTitle(window, title.c_str());
+
+
+		if (frames++ > 500.f) {
+			float averageTime = (clock() - t) / 500.f / CLOCKS_PER_SEC;
+			printf("Computation time: %f\n", averageTime);
+			title = "Fps: " + std::to_string(int(1.f / averageTime));
+			glfwSetWindowTitle(window, title.c_str());
+			frames = 0.f; 
+			t = clock();
+		}
+
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 	}

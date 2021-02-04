@@ -1,5 +1,6 @@
 #include "Mesh.h"
 #include "cuda_runtime.h"
+#include "Voxel.cuh"
 Mesh::Mesh(const std::string& path)
 {
 	data = obj::loadModelFromFile(path);
@@ -28,6 +29,8 @@ void Mesh::UploatToDevice(CudaMesh &cuMesh)
 	if (cudaStatus != cudaSuccess) printf("d_idx cudaMalloc Failed\n");
 	cudaStatus = cudaMemcpy(cuMesh.d_idx, data.faces["default"].data(), index_size, cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) printf("d_idx cudaMemcpy Failed\n");
+
+	PreProcess(cuMesh);
 }
 
 GLuint Mesh::CreateVao()

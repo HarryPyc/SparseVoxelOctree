@@ -224,6 +224,7 @@ __global__ void PreProcessTriangleKernel() {
 //}
 
 void InitVoxelization(Voxel*& d_voxel, uint*& d_idx) {
+	Info.Counter = 0;
 	gpuErrchk(cudaMemcpyToSymbol(voxelCounter, &Info.Counter, sizeof(uint)));
 
 	size_t voxelSize = voxelDim * voxelDim * voxelDim * sizeof(Voxel);
@@ -231,8 +232,8 @@ void InitVoxelization(Voxel*& d_voxel, uint*& d_idx) {
 	gpuErrchk(cudaMalloc((void**)&d_voxel, voxelSize));
 	gpuErrchk(cudaMalloc((void**)&d_idx, voxelDim * voxelDim * voxelDim * sizeof(uint)));
 }
-void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel, uint*& d_idx)
-{
+
+void PreProcess(CudaMesh& cuMesh) {
 	gpuErrchk(cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)));
 	//PreProcess Triangle
 	gpuErrchk(cudaMalloc((void**)&cuMesh.d_tri, cuMesh.triNum * sizeof(Triangle)));
@@ -244,14 +245,20 @@ void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel, uint*& d_idx)
 	gpuErrchk(cudaDeviceSynchronize());
 
 	blockDim = 256, gridDim = cuMesh.triNum / blockDim.x + 1;
-	PreProcessTriangleKernel <<< gridDim, blockDim >>> ();
+	PreProcessTriangleKernel << < gridDim, blockDim >> > ();
 	gpuErrchk(cudaGetLastError());
 	gpuErrchk(cudaDeviceSynchronize());
+
 	gpuErrchk(cudaFree(cuMesh.d_idx));
-
+}
+void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel, uint*& d_idx)
+{
+	gpuErrchk(cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)));
 	clock_t t;
-
 	t = clock();
+
+	gpuErrchk(cudaMemcpyToSymbol(mesh, &cuMesh, sizeof(CudaMesh)));
+	dim3 blockDim = 256, gridDim = cuMesh.triNum / blockDim.x + 1;
 	VoxelizationKernel << <gridDim, blockDim >> > (d_voxel, d_idx);
 	gpuErrchk(cudaGetLastError());
 	gpuErrchk(cudaDeviceSynchronize());
@@ -263,9 +270,10 @@ void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel, uint*& d_idx)
 	printf("Voxel Count: %i\n", Info.Counter);
 
 	//Free CudaMesh
-	gpuErrchk(cudaFree(cuMesh.d_v));
-	gpuErrchk(cudaFree(cuMesh.d_n));
-	gpuErrchk(cudaFree(cuMesh.d_tri));
+
+	//gpuErrchk(cudaFree(cuMesh.d_v));
+	//gpuErrchk(cudaFree(cuMesh.d_n));
+	//gpuErrchk(cudaFree(cuMesh.d_tri));
 
 }
 

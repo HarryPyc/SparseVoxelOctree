@@ -135,9 +135,10 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel, uint* d_idx)
 	cudaMemcpyToSymbol(start, &h_start, sizeof(uint));
 	cudaMemcpyToSymbol(end, &h_curIdx, sizeof(uint));
 	cudaMemcpyToSymbol(curIdx, &h_curIdx, sizeof(uint));
-
-	cudaStatus = cudaMalloc((void**)&d_node, 3 * Info.Counter * sizeof(Node));
-	if (cudaStatus != cudaSuccess) printf("d_Node cudaMalloc Failed\n");
+	
+	if (d_node)
+		gpuErrchk(cudaFree(d_node));
+	gpuErrchk(cudaMalloc((void**)&d_node, 3 * Info.Counter * sizeof(Node)));
 	clock_t time = clock();
 	for (uint i = 0; i < h_maxLevel; i++) {
 		cudaMemcpyToSymbol(curLevel, &i, sizeof(uint));
