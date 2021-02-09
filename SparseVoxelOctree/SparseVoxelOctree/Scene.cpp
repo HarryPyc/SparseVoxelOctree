@@ -2,7 +2,7 @@
 #include <glm/gtx/transform.hpp>
 CudaMesh cuStatic, cuDynamic;
 Scene::Scene() {
-	static_mesh = new Mesh("asset/model/static_box.obj");
+	static_mesh = new Mesh("asset/model/test_scene.obj");
 	dynamic_mesh = new Mesh("asset/model/dragon.obj");
 }
 
