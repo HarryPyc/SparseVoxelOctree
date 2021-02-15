@@ -87,6 +87,7 @@
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <CudaCompile Include="Morton.cu" />
     <CudaCompile Include="Octree.cu" />
     <CudaCompile Include="Voxel.cu" />
   </ItemGroup>
@@ -95,6 +96,7 @@
     <ClInclude Include="FrameBuffer.h" />
     <ClInclude Include="include\InitShader.h" />
     <ClInclude Include="Mesh.h" />
+    <ClInclude Include="Morton.cuh" />
     <ClInclude Include="Octree.cuh" />
     <ClInclude Include="Scene.h" />
     <ClInclude Include="Voxel.cuh" />

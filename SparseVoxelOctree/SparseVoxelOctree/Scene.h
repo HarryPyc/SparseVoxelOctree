@@ -10,6 +10,6 @@ public:
 	~Scene();
 
 	void Upload();
-	void SceneVoxelization(Voxel*& d_voxel, uint*& d_idx);
+	void SceneVoxelization(Voxel*& d_voxel);
 };
 

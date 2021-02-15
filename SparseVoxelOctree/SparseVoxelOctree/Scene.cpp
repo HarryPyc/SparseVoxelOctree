@@ -22,9 +22,9 @@ void Scene::Upload() {
 	//cuDynamic.M = glm::translate(glm::vec3(0.f, 0.f, 0.3f));
 }
 
-void Scene::SceneVoxelization(Voxel*& d_voxel, uint*& d_idx)
+void Scene::SceneVoxelization(Voxel*& d_voxel)
 {
-	InitVoxelization(d_voxel, d_idx);
-	Voxelization(cuStatic, d_voxel, d_idx);
-	Voxelization(cuDynamic, d_voxel, d_idx);
+	InitVoxelization(d_voxel);
+	Voxelization(cuStatic, d_voxel);
+	Voxelization(cuDynamic, d_voxel);
 }

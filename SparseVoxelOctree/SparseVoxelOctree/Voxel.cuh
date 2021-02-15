@@ -32,8 +32,8 @@ const int WINDOW_WIDTH = 1280, WINDOW_HEIGHT = 720;
 const unsigned short voxelDim = 256;
 
 void PreProcess(CudaMesh& cuMesh);
-void InitVoxelization(Voxel*& d_voxel, uint*& d_idx);
-void Voxelization(CudaMesh &cuMesh, Voxel*& d_voxel, uint *& d_idx);
+void InitVoxelization(Voxel*& d_voxel);
+void Voxelization(CudaMesh &cuMesh, Voxel*& d_voxel);
 //void RunRayMarchingKernel(uint* d_pbo, cudaArray_t front, cudaArray_t back, Voxel* d_voxel);
 
 __device__ inline glm::vec4 ConvUintToVec4(unsigned int val)

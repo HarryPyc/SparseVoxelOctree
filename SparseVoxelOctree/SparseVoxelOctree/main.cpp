@@ -14,7 +14,7 @@
 #include "FrameBuffer.h"
 #include "Scene.h"
 
-Voxel* d_voxel = NULL; unsigned int* d_idx = NULL; Node* d_node = NULL;
+Voxel* d_voxel = NULL; Node* d_node = NULL;
 GLFWwindow* window; uint WIDTH = WINDOW_WIDTH, HEIGHT = WINDOW_HEIGHT;
 GLuint shader, pbo, textureID;
 cudaGraphicsResource_t frontCuda, backCuda, pboCuda;
@@ -194,7 +194,8 @@ int main() {
 	glfwSetFramebufferSizeCallback(window, resize_callback);
 
 	initRayCasting();
-
+	scene.SceneVoxelization(d_voxel);
+	OctreeConstruction(d_node, d_voxel);
 
 	clock_t t = clock();
 	float t_total = 0.f, frames = 0.f;
@@ -209,8 +210,6 @@ int main() {
 		cam.UpdateViewMatrix();
 		Info.camPos = cam.pos;
 
-		scene.SceneVoxelization(d_voxel, d_idx);
-		OctreeConstruction(d_node, d_voxel, d_idx);
 		glUseProgram(shader);
 		cam.upload(shader);
 		RayMarching();

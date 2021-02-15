@@ -3,6 +3,7 @@
   <ItemGroup>
     <CudaCompile Include="Voxel.cu" />
     <CudaCompile Include="Octree.cu" />
+    <CudaCompile Include="Morton.cu" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Header Files">
@@ -36,6 +37,7 @@
     <ClInclude Include="Scene.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Morton.cuh" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Mesh.cpp">
