@@ -29,7 +29,7 @@ struct VoxelizationInfo {
 };
 
 const int WINDOW_WIDTH = 1280, WINDOW_HEIGHT = 720;
-const unsigned short voxelDim = 256;
+const unsigned short voxelDim = 512;
 
 void PreProcess(CudaMesh& cuMesh);
 void InitVoxelization(Voxel*& d_voxel);
@@ -43,8 +43,8 @@ __device__ inline glm::vec4 ConvUintToVec4(unsigned int val)
 }
 __device__ inline unsigned int ConvVec4ToUint(glm::vec4 val) {
 	val *= 255.f;
-	return (unsigned int(val.w) & 0x000000FF) << 24U | (unsigned int(val.z) & 0x000000FF) << 16U
-		| (unsigned int(val.y) & 0x000000FF) << 8U | (unsigned int(val.x) & 0x000000FF);
+	return ((unsigned int(val.w) & 0x000000FF) << 24U) | ((unsigned int(val.z) & 0x000000FF) << 16U)
+		| ((unsigned int(val.y) & 0x000000FF) << 8U) | (unsigned int(val.x) & 0x000000FF);
 }
 
 __device__ inline glm::uvec3 ConvUintToUvec3(unsigned int val) {

@@ -197,6 +197,9 @@ int main() {
 	scene.SceneVoxelization(d_voxel);
 	OctreeConstruction(d_node, d_voxel);
 
+	scene.DynamicVoxelization(d_voxel);
+	OctreeUpdate(d_node, d_voxel);
+
 	clock_t t = clock();
 	float t_total = 0.f, frames = 0.f;
 	std::string title;

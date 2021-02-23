@@ -11,5 +11,6 @@ public:
 
 	void Upload();
 	void SceneVoxelization(Voxel*& d_voxel);
+	void DynamicVoxelization(Voxel*& d_voxel);
 };
 

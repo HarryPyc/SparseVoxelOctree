@@ -10,9 +10,9 @@
 extern VoxelizationInfo Info;
 extern uint h_MIPMAP;
 __constant__ VoxelizationInfo d_Info;
-__constant__ int curDepth, MIPMAP, MAX_DEPTH;
+__constant__ int curDepth, MIPMAP, d_MAX_DEPTH;
 Node root;
-__device__ int nodeCounter, traverseCounter;
+__device__ int nodeCounter, dynamicNodeCounter, traverseCounter;
 
 texture<float4, 2, cudaReadModeElementType> backTex;
 texture<uint4, 1, cudaReadModeElementType> octree;
@@ -42,19 +42,20 @@ void initCudaTexture()
 }
 
 __global__ void OctreeConstructKernel(Node* d_node, Voxel* d_voxel, Voxel* d_nextVoxel, int* d_ptr, int* d_nextPtr) {
-	__shared__ Voxel voxels[8 * 256];
+	//__shared__ Voxel voxels[8 * 256];
 	const int idx = blockDim.x * blockIdx.x + threadIdx.x;
 	if (idx >= 1 << 3 * (curDepth - 1)) return;
 
-	for (int i = 0; i < 8; i++)
-		voxels[threadIdx.x * 8 + i] = d_voxel[idx * 8 + i];//copy to shared memory
+	//for (int i = 0; i < 8; i++)
+	//	voxels[threadIdx.x * 8 + i] = d_voxel[idx * 8 + i];//copy to shared memory
 
-	glm::vec3 color, normal;
+	glm::vec3 color(0.f), normal(0.f);
 	int counter = 0;
 	int bitMask = 0;
 	Voxel v;
 	for (int i = 0; i < 8; i++) {
-		v = voxels[threadIdx.x * 8 + i];
+		//v = voxels[threadIdx.x * 8 + i];
+		v = d_voxel[idx * 8 + i];
 		if (!v.empty()) {
 			glm::vec3 c, n;
 			v.GetInfo(c, n);
@@ -67,10 +68,10 @@ __global__ void OctreeConstructKernel(Node* d_node, Voxel* d_voxel, Voxel* d_nex
 		size_t arrayIdx = atomicAdd(&nodeCounter, 8);
 		for (int i = 0; i < 8; i++) {
 			int ptr = (1 << curDepth) == d_Info.Dim ? NULLPTR : d_ptr[idx * 8 + i];
-			d_node[arrayIdx + i] = Node(ptr, voxels[threadIdx.x * 8 + i]);
+			d_node[arrayIdx + i] = Node(ptr, d_voxel[idx * 8 + i]);
 		}
 		Voxel voxel;
-		voxel.SetInfo(color / float(counter), normal / float(counter));
+		voxel.SetInfo(color / float(counter), glm::normalize(normal / float(counter)));
 		voxel.n |= bitMask << 24U;
 		d_nextVoxel[idx] = voxel;
 		d_nextPtr[idx] = arrayIdx;
@@ -82,8 +83,12 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel)
 {
 	clock_t t = clock();
 	const int MAX_DEPTH = log2(Info.Dim);
-	size_t NODE_SIZE= ((1 << 3 * (MAX_DEPTH + 1)) - 1) / 7 * sizeof(Node);
+	gpuErrchk(cudaMemcpyToSymbol(d_MAX_DEPTH, &MAX_DEPTH, sizeof(int)));
+	//size_t NODE_SIZE= ((1 << 3 * (MAX_DEPTH + 1)) - 1) / 7 * sizeof(Node);
+	size_t NODE_SIZE = 5e6 * sizeof(Node);
+
 	gpuErrchk(cudaMalloc((void**)&d_node, NODE_SIZE));
+	gpuErrchk(cudaMemset(d_node, 0, NODE_SIZE));
 	Voxel* d_nextVoxel; int* d_ptr, *d_nextPtr; //lower level voxel
 	int h_nodeCounter = 0;
 	gpuErrchk(cudaMemcpyToSymbol(nodeCounter, &h_nodeCounter, sizeof(int)));
@@ -93,7 +98,9 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel)
 		gpuErrchk(cudaMemcpyToSymbol(curDepth, &i, sizeof(int)));
 		size_t nextSize = 1 << 3 * (i - 1);
 		gpuErrchk(cudaMalloc((void**)&d_nextVoxel, nextSize * sizeof(Voxel)));
+		gpuErrchk(cudaMemset(d_nextVoxel, 0, nextSize * sizeof(Voxel)));
 		gpuErrchk(cudaMalloc((void**)&d_nextPtr, nextSize * sizeof(int)));
+		gpuErrchk(cudaMemset(d_nextPtr, 0, nextSize * sizeof(int)));
 
 		dim3 blockDim = 256, gridDim = (1 << 3 * i) / 8 / blockDim.x + 1;
 		OctreeConstructKernel << <gridDim, blockDim>> > (d_node, d_voxel, d_nextVoxel, d_ptr, d_nextPtr);
@@ -115,8 +122,115 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel)
 	gpuErrchk(cudaFree(d_ptr));
 	gpuErrchk(cudaMemcpyFromSymbol(&h_nodeCounter, nodeCounter, sizeof(int)));
 	t = clock() - t;
-	printf("Octree Construction Complete, %i total nodes in %f sec\n", h_nodeCounter, t / CLOCKS_PER_SEC);
+	printf("Octree Construction Complete, %i total nodes in %f sec\n", h_nodeCounter, (float)t / CLOCKS_PER_SEC);
 }
+
+__device__ inline int hasNode(Node* d_node, Node root, int& arrayIdx) {
+	int offset = arrayIdx;
+	int rootPos, i;
+	for (i = 0; i < curDepth - 1; i++) {
+		int s = 1 << 3 * (curDepth - i - 1);//how many leaf nodes each node has.
+		offset = arrayIdx / s;
+		if (root.ptr != NULLPTR && root.hasVoxel(offset)) {
+			rootPos = root.ptr + offset;
+			root = d_node[root.ptr + offset];
+		}
+		else
+			break;
+		arrayIdx -= offset * s;
+	}
+	arrayIdx = rootPos;
+	return i;
+}
+__global__ void OctreeUpdateKernel(Node* d_node, Node root, Voxel* d_voxel, Voxel* d_nextVoxel, int* d_ptr, int* d_nextPtr) {
+	const int idx = blockDim.x * blockIdx.x + threadIdx.x;
+	if (idx >= 1 << 3 * (curDepth - 1)) return;
+
+	glm::vec3 color(0.f), normal(0.f);
+	int counter = 0;
+	int bitMask = 0;
+	Voxel v;
+	int staticParLevel, staticParPos = idx * 8;
+	staticParLevel = hasNode(d_node, root, staticParPos);
+	for (int i = 0; i < 8; i++) {
+		v = d_voxel[idx * 8 + i];
+		if (!v.empty()) {
+			glm::vec3 c, n;
+			v.GetInfo(c, n);
+			color += c, normal += n;
+			counter++;
+			bitMask |= 1 << i;
+		}
+	}
+	if (counter > 0) {
+		if (staticParLevel == curDepth - 1 && d_node[staticParPos].ptr != NULLPTR) {
+			Node sRoot = d_node[staticParPos];
+			for (int i = 0; i < 8; i++) {
+				if (d_node[sRoot.ptr + i].voxel.empty()) {
+					int ptr = (1 << curDepth) == d_Info.Dim ? NULLPTR : d_ptr[idx * 8 + i];
+					d_node[sRoot.ptr + i] = Node(ptr, d_voxel[idx * 8 + i]);
+				}
+			}
+			sRoot.voxel.n |= bitMask << 24U;
+			d_node[staticParPos] = sRoot;
+		}
+		else {
+			size_t arrayIdx = atomicAdd(&dynamicNodeCounter, 8) + nodeCounter;
+			for (int i = 0; i < 8; i++) {
+				int ptr = (1 << curDepth) == d_Info.Dim ? NULLPTR : d_ptr[idx * 8 + i];
+				d_node[arrayIdx + i] = Node(ptr, d_voxel[idx * 8 + i]);
+			}
+			Voxel voxel;
+			voxel.SetInfo(color / float(counter), glm::normalize(normal / float(counter)));
+			voxel.n |= bitMask << 24U;
+			d_nextVoxel[idx] = voxel;
+			d_nextPtr[idx] = arrayIdx;
+		}
+	}
+}
+
+void OctreeUpdate(Node*& d_node, Voxel*& d_voxel)
+{
+	clock_t t = clock();
+	const int MAX_DEPTH = log2(Info.Dim);
+
+	Voxel* d_nextVoxel; int* d_ptr, * d_nextPtr; //lower level voxel
+	int h_nodeCounter = 0;
+	gpuErrchk(cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)));
+	gpuErrchk(cudaMemcpyToSymbol(dynamicNodeCounter, &h_nodeCounter, sizeof(int)));
+
+	for (int i = MAX_DEPTH; i > 0; i--) {
+		gpuErrchk(cudaMemcpyToSymbol(curDepth, &i, sizeof(int)));
+		size_t nextSize = 1 << 3 * (i - 1);
+		gpuErrchk(cudaMalloc((void**)&d_nextVoxel, nextSize * sizeof(Voxel)));
+		gpuErrchk(cudaMemset(d_nextVoxel, 0, nextSize * sizeof(Voxel)));
+		gpuErrchk(cudaMalloc((void**)&d_nextPtr, nextSize * sizeof(int)));
+		gpuErrchk(cudaMemset(d_nextPtr, 0, nextSize * sizeof(int)));
+
+		dim3 blockDim = 256, gridDim = (1 << 3 * i) / 8 / blockDim.x + 1;
+		OctreeUpdateKernel << <gridDim, blockDim >> > (d_node, root, d_voxel, d_nextVoxel, d_ptr, d_nextPtr);
+		gpuErrchk(cudaGetLastError());
+		gpuErrchk(cudaDeviceSynchronize());
+
+		gpuErrchk(cudaMemcpyFromSymbol(&h_nodeCounter, dynamicNodeCounter, sizeof(int)));
+		gpuErrchk(cudaFree(d_voxel));
+		if (i != MAX_DEPTH)
+			gpuErrchk(cudaFree(d_ptr));
+		d_voxel = d_nextVoxel;
+		d_ptr = d_nextPtr;
+	}
+
+	//gpuErrchk(cudaMemcpy(&root.ptr, d_ptr, sizeof(int), cudaMemcpyDeviceToHost));
+	//gpuErrchk(cudaMemcpy(&root.voxel, d_voxel, sizeof(Voxel), cudaMemcpyDeviceToHost));
+
+	gpuErrchk(cudaFree(d_voxel));
+	gpuErrchk(cudaFree(d_ptr));
+	gpuErrchk(cudaMemcpyFromSymbol(&h_nodeCounter, dynamicNodeCounter, sizeof(int)));
+
+	t = clock() - t;
+	printf("Octree Update Complete, %i total nodes in %f sec\n", h_nodeCounter, (float)t / CLOCKS_PER_SEC);
+}
+
 
 
 struct Ray {
@@ -149,19 +263,19 @@ struct HitInfo {
 
 __device__ Voxel OctreeTraverse(Node* d_node, Node root, Ray ray, glm::vec3 minAABB, uint currentLevel, float& t) {
 	//atomicAdd(&traverseCounter, 1U);
-	if (root.ptr == NULLPTR)
-		return root.voxel;
 	if (currentLevel == MIPMAP)
 		return root.voxel;
-
+	if (root.ptr == NULLPTR)
+		return Voxel();
+	
 	currentLevel++;
 	HitInfo hits[8];
 	int counter = 0;
 	float temp = 999.f;
-	Voxel res;
+
 	const float delta = d_Info.delta / float((1 << (currentLevel)));
 	for (int i = 0; i < 8; i++) {
-		glm::uvec3 idx(i & 1, i >> 1 & 1, i >> 2);
+		glm::uvec3 idx(i & 1, (i >> 1) & 1, i >> 2);
 		glm::vec3 _minAABB = minAABB + glm::vec3(idx) * delta;
 		float _t;
 		if (root.hasVoxel(i) && ray.RayAABBIntersection(_minAABB, _minAABB + delta, _t)) {// !d_node[root.ptr + i].voxel.empty()
@@ -186,14 +300,13 @@ __device__ Voxel OctreeTraverse(Node* d_node, Node root, Ray ray, glm::vec3 minA
 			glm::vec3 c;
 			glm::vec3 n;
 			voxel.GetInfo(c, n);
-			if (ray.inside && glm::dot(ray.d, n) <= 0.f)
-				continue;
+
 			if (currentLevel == MIPMAP)
 				t = hits[i].t;
 			return voxel;
 		}
 	}
-	return res;
+	return Voxel();
 }
 
 __global__ void RayCastKernel(uint* d_pbo, Node* d_node, const uint w, const uint h, Node root) {
@@ -309,8 +422,11 @@ void initRayCasting()
 	//cudaStatus = cudaBindTexture(&offset, &octree, d_node, &format, octree_size);
 	//if (cudaStatus != cudaSuccess) printf("cudaBindTexture Failed, error: %s\n", cudaGetErrorString(cudaStatus));
 	gpuErrchk(cudaDeviceSetLimit(cudaLimitStackSize, 1024 * 16));
-	gpuErrchk(cudaMemcpyToSymbol(MAX_DEPTH, &MAX_TRACE_DEPTH, sizeof(uint)));
+
 }
+
+
+
 
 
 

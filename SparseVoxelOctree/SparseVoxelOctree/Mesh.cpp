@@ -30,7 +30,10 @@ void Mesh::UploatToDevice(CudaMesh &cuMesh)
 	cudaStatus = cudaMemcpy(cuMesh.d_idx, data.faces["default"].data(), index_size, cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) printf("d_idx cudaMemcpy Failed\n");
 
+	gpuErrchk(cudaMalloc((void**)&cuMesh.d_tri, cuMesh.triNum * sizeof(Triangle)));
+
 	PreProcess(cuMesh);
+	DeleteCPU();
 }
 
 GLuint Mesh::CreateVao()
@@ -61,6 +64,14 @@ void Mesh::Draw()
 {
 	glBindVertexArray(vao);
 	glDrawElements(GL_TRIANGLES, data.faces["default"].size(), GL_UNSIGNED_INT, 0);
+}
+
+void Mesh::DeleteCPU()
+{
+	data.faces.clear();
+	data.vertex.clear();
+	data.normal.clear();
+	data.texCoord.clear();
 }
 
 

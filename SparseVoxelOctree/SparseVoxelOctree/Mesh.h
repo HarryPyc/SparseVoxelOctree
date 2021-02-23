@@ -35,6 +35,6 @@ public:
 	void Draw();
 private:
 	GLuint vao;
-
+	void DeleteCPU();
 };
 

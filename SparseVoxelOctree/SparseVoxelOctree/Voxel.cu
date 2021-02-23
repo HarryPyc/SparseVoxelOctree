@@ -188,12 +188,12 @@ void InitVoxelization(Voxel*& d_voxel) {
 	size_t voxelSize = voxelDim * voxelDim * voxelDim * sizeof(Voxel);
 
 	gpuErrchk(cudaMalloc((void**)&d_voxel, voxelSize));
+	gpuErrchk(cudaMemset(d_voxel, 0, voxelSize));
 }
 
 void PreProcess(CudaMesh& cuMesh) {
 	gpuErrchk(cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)));
 	//PreProcess Triangle
-	gpuErrchk(cudaMalloc((void**)&cuMesh.d_tri, cuMesh.triNum * sizeof(Triangle)));
 	gpuErrchk(cudaMemcpyToSymbol(mesh, &cuMesh, sizeof(CudaMesh)));
 
 	dim3 blockDim = 256, gridDim = cuMesh.vertNum / blockDim.x + 1;
@@ -206,7 +206,7 @@ void PreProcess(CudaMesh& cuMesh) {
 	gpuErrchk(cudaGetLastError());
 	gpuErrchk(cudaDeviceSynchronize());
 
-	gpuErrchk(cudaFree(cuMesh.d_idx));
+	//gpuErrchk(cudaFree(cuMesh.d_idx));
 }
 void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel)
 {
