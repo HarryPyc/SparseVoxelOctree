@@ -220,12 +220,15 @@ void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel)
 	gpuErrchk(cudaGetLastError());
 	gpuErrchk(cudaDeviceSynchronize());
 
-	t = clock() - t;
-	printf("Voxelization finished, time : %f\n", (float)t / CLOCKS_PER_SEC);	
+
 
 	gpuErrchk(cudaMemcpyFromSymbol(&Info.Counter, voxelCounter, sizeof(uint)));
-	printf("Voxel Count: %i\n", Info.Counter);
+	t = clock() - t;
 
+#ifdef PRINT_INFO
+	printf("Voxelization finished, time : %f\n", (float)t / CLOCKS_PER_SEC);
+	printf("Voxel Count: %i\n", Info.Counter);
+#endif // PRINT_INFO
 	//Free CudaMesh
 
 	//gpuErrchk(cudaFree(cuMesh.d_v));

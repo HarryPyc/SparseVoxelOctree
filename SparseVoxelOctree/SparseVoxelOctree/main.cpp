@@ -148,6 +148,7 @@ void RayMarching() {
 		printf("cuda unmap resources failed\n");
 }
 
+bool update = false;
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
 	const uint maxLevel = glm::log2(Info.Dim);
 	if (action == GLFW_PRESS) {
@@ -170,6 +171,9 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 			h_MIPMAP = maxLevel - 7; break;
 		case GLFW_KEY_P:
 			pause = !pause;
+			break;
+		case GLFW_KEY_SPACE:
+			update = !update;
 			break;
 		}
 	}
@@ -197,8 +201,7 @@ int main() {
 	scene.SceneVoxelization(d_voxel);
 	OctreeConstruction(d_node, d_voxel);
 
-	scene.DynamicVoxelization(d_voxel);
-	OctreeUpdate(d_node, d_voxel);
+
 
 	clock_t t = clock();
 	float t_total = 0.f, frames = 0.f;
@@ -207,6 +210,11 @@ int main() {
 	while (!glfwWindowShouldClose(window)) {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+		//Dynamic Update
+		if (update) {
+			scene.DynamicVoxelization(d_voxel);
+			OctreeUpdate(d_node, d_voxel);
+		}
 
 		if(!pause)
 			cam.pos = glm::vec3(glm::rotate(glm::radians(1.f), cam.up) * glm::vec4(cam.pos, 1.f));

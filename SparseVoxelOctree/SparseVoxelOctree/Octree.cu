@@ -11,7 +11,8 @@ extern VoxelizationInfo Info;
 extern uint h_MIPMAP;
 __constant__ VoxelizationInfo d_Info;
 __constant__ int curDepth, MIPMAP, d_MAX_DEPTH;
-Node root;
+Node root, sRoot, dRoot;
+int sNodeCounter, dNodeCounter;
 __device__ int nodeCounter, dynamicNodeCounter, traverseCounter;
 
 texture<float4, 2, cudaReadModeElementType> backTex;
@@ -90,8 +91,8 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel)
 	gpuErrchk(cudaMalloc((void**)&d_node, NODE_SIZE));
 	gpuErrchk(cudaMemset(d_node, 0, NODE_SIZE));
 	Voxel* d_nextVoxel; int* d_ptr, *d_nextPtr; //lower level voxel
-	int h_nodeCounter = 0;
-	gpuErrchk(cudaMemcpyToSymbol(nodeCounter, &h_nodeCounter, sizeof(int)));
+	sNodeCounter = 0;
+	gpuErrchk(cudaMemcpyToSymbol(nodeCounter, &sNodeCounter, sizeof(int)));
 	gpuErrchk(cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)));
 
 	for (int i = MAX_DEPTH; i > 0; i--) {
@@ -107,7 +108,6 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel)
 		gpuErrchk(cudaGetLastError());
 		gpuErrchk(cudaDeviceSynchronize());
 
-		gpuErrchk(cudaMemcpyFromSymbol(&h_nodeCounter, nodeCounter, sizeof(int)));
 		gpuErrchk(cudaFree(d_voxel));
 		if(i != MAX_DEPTH)
 			gpuErrchk(cudaFree(d_ptr));
@@ -115,25 +115,30 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel)
 		d_ptr = d_nextPtr;
 	}
 
-	gpuErrchk(cudaMemcpy(&root.ptr, d_ptr, sizeof(int), cudaMemcpyDeviceToHost));
-	gpuErrchk(cudaMemcpy(&root.voxel, d_voxel, sizeof(Voxel), cudaMemcpyDeviceToHost));
+	gpuErrchk(cudaMemcpy(&sRoot.ptr, d_ptr, sizeof(int), cudaMemcpyDeviceToHost));
+	gpuErrchk(cudaMemcpy(&sRoot.voxel, d_voxel, sizeof(Voxel), cudaMemcpyDeviceToHost));
+
+	root = sRoot;
 
 	gpuErrchk(cudaFree(d_voxel));
 	gpuErrchk(cudaFree(d_ptr));
-	gpuErrchk(cudaMemcpyFromSymbol(&h_nodeCounter, nodeCounter, sizeof(int)));
+	gpuErrchk(cudaMemcpyFromSymbol(&sNodeCounter, nodeCounter, sizeof(int)));
 	t = clock() - t;
-	printf("Octree Construction Complete, %i total nodes in %f sec\n", h_nodeCounter, (float)t / CLOCKS_PER_SEC);
+#ifdef PRINT_INFO
+	printf("Octree Construction Complete, %i total nodes in %f sec\n", sNodeCounter, (float)t / CLOCKS_PER_SEC);
+#endif // PRINT_INFO
+
 }
 
 __device__ inline int hasNode(Node* d_node, Node root, int& arrayIdx) {
 	int offset = arrayIdx;
-	int rootPos, i;
-	for (i = 0; i < curDepth - 1; i++) {
+	int rootPos, i = 0;
+	for (; i < curDepth - 1; i++) {
 		int s = 1 << 3 * (curDepth - i - 1);//how many leaf nodes each node has.
 		offset = arrayIdx / s;
 		if (root.ptr != NULLPTR && root.hasVoxel(offset)) {
 			rootPos = root.ptr + offset;
-			root = d_node[root.ptr + offset];
+			root = d_node[rootPos];
 		}
 		else
 			break;
@@ -163,41 +168,42 @@ __global__ void OctreeUpdateKernel(Node* d_node, Node root, Voxel* d_voxel, Voxe
 		}
 	}
 	if (counter > 0) {
-		if (staticParLevel == curDepth - 1 && d_node[staticParPos].ptr != NULLPTR) {
-			Node sRoot = d_node[staticParPos];
+		if (staticParLevel == curDepth - 1) {
+			Node _root = curDepth == 1? root : d_node[staticParPos];
 			for (int i = 0; i < 8; i++) {
-				if (d_node[sRoot.ptr + i].voxel.empty()) {
-					int ptr = (1 << curDepth) == d_Info.Dim ? NULLPTR : d_ptr[idx * 8 + i];
-					d_node[sRoot.ptr + i] = Node(ptr, d_voxel[idx * 8 + i]);
+				if (_root.hasVoxel(i) && d_voxel[idx * 8 + i].empty()) {
+					d_voxel[idx * 8 + i] = d_node[_root.ptr + i].voxel;
+					if(curDepth != d_MAX_DEPTH)
+						d_ptr[idx * 8 + i] = d_node[_root.ptr + i].ptr;
+					bitMask |= 1 << i;
 				}
 			}
-			sRoot.voxel.n |= bitMask << 24U;
-			d_node[staticParPos] = sRoot;
 		}
-		else {
-			size_t arrayIdx = atomicAdd(&dynamicNodeCounter, 8) + nodeCounter;
-			for (int i = 0; i < 8; i++) {
-				int ptr = (1 << curDepth) == d_Info.Dim ? NULLPTR : d_ptr[idx * 8 + i];
-				d_node[arrayIdx + i] = Node(ptr, d_voxel[idx * 8 + i]);
-			}
-			Voxel voxel;
-			voxel.SetInfo(color / float(counter), glm::normalize(normal / float(counter)));
-			voxel.n |= bitMask << 24U;
-			d_nextVoxel[idx] = voxel;
-			d_nextPtr[idx] = arrayIdx;
+
+		size_t arrayIdx = atomicAdd(&dynamicNodeCounter, 8) + nodeCounter;
+		for (int i = 0; i < 8; i++) {
+			int ptr = (1 << curDepth) == d_Info.Dim ? NULLPTR : d_ptr[idx * 8 + i];
+			d_node[arrayIdx + i] = Node(ptr, d_voxel[idx * 8 + i]);
 		}
+		Voxel voxel;
+		voxel.SetInfo(color / float(counter), glm::normalize(normal / float(counter)));
+		voxel.n |= bitMask << 24U;
+		d_nextVoxel[idx] = voxel;
+		d_nextPtr[idx] = arrayIdx;
 	}
 }
 
 void OctreeUpdate(Node*& d_node, Voxel*& d_voxel)
 {
 	clock_t t = clock();
+	gpuErrchk(cudaMemset(d_node + sNodeCounter, 0, dNodeCounter * sizeof(Node)));//Clear Dynamic Part
 	const int MAX_DEPTH = log2(Info.Dim);
+	root = sRoot;
 
 	Voxel* d_nextVoxel; int* d_ptr, * d_nextPtr; //lower level voxel
-	int h_nodeCounter = 0;
 	gpuErrchk(cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)));
-	gpuErrchk(cudaMemcpyToSymbol(dynamicNodeCounter, &h_nodeCounter, sizeof(int)));
+	dNodeCounter = 0;
+	gpuErrchk(cudaMemcpyToSymbol(dynamicNodeCounter, &dNodeCounter, sizeof(int)));
 
 	for (int i = MAX_DEPTH; i > 0; i--) {
 		gpuErrchk(cudaMemcpyToSymbol(curDepth, &i, sizeof(int)));
@@ -212,23 +218,28 @@ void OctreeUpdate(Node*& d_node, Voxel*& d_voxel)
 		gpuErrchk(cudaGetLastError());
 		gpuErrchk(cudaDeviceSynchronize());
 
-		gpuErrchk(cudaMemcpyFromSymbol(&h_nodeCounter, dynamicNodeCounter, sizeof(int)));
 		gpuErrchk(cudaFree(d_voxel));
 		if (i != MAX_DEPTH)
 			gpuErrchk(cudaFree(d_ptr));
+
 		d_voxel = d_nextVoxel;
 		d_ptr = d_nextPtr;
 	}
 
-	//gpuErrchk(cudaMemcpy(&root.ptr, d_ptr, sizeof(int), cudaMemcpyDeviceToHost));
-	//gpuErrchk(cudaMemcpy(&root.voxel, d_voxel, sizeof(Voxel), cudaMemcpyDeviceToHost));
+	gpuErrchk(cudaMemcpy(&dRoot.ptr, d_ptr, sizeof(int), cudaMemcpyDeviceToHost));
+	gpuErrchk(cudaMemcpy(&dRoot.voxel, d_voxel, sizeof(Voxel), cudaMemcpyDeviceToHost));
+
+	root = dRoot;
 
 	gpuErrchk(cudaFree(d_voxel));
 	gpuErrchk(cudaFree(d_ptr));
-	gpuErrchk(cudaMemcpyFromSymbol(&h_nodeCounter, dynamicNodeCounter, sizeof(int)));
+	gpuErrchk(cudaMemcpyFromSymbol(&dNodeCounter, dynamicNodeCounter, sizeof(int)));
 
 	t = clock() - t;
-	printf("Octree Update Complete, %i total nodes in %f sec\n", h_nodeCounter, (float)t / CLOCKS_PER_SEC);
+#ifdef PRINT_INFO
+	printf("Octree Update Complete, %i total nodes in %f sec\n", dNodeCounter, (float)t / CLOCKS_PER_SEC);
+#endif // PRINT_INFO
+
 }
 
 

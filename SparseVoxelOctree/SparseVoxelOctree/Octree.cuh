@@ -9,7 +9,7 @@ public:
 	__host__ __device__ ~Node();
 	__device__ inline bool hasVoxel(uint i) {
 		//printf("hasLeaf: %u\n", voxel.c >> 24U);
-		return (voxel.n >> 24U & (1U << i)) >> i;
+		return voxel.n >> 24U >> i & 1;
 	}
 };
 

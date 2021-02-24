@@ -4,6 +4,7 @@
 #define GLM_FORCE_CUDA
 #include <glm/glm.hpp>
 #include "Mesh.h"
+//#define PRINT_INFO
 typedef unsigned int uint;
 
 class Voxel {
