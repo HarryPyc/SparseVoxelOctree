@@ -192,6 +192,8 @@ void InitVoxelization(Voxel*& d_voxel) {
 }
 
 void PreProcess(CudaMesh& cuMesh) {
+	clock_t t;
+	t = clock();
 	gpuErrchk(cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)));
 	//PreProcess Triangle
 	gpuErrchk(cudaMemcpyToSymbol(mesh, &cuMesh, sizeof(CudaMesh)));
@@ -205,8 +207,11 @@ void PreProcess(CudaMesh& cuMesh) {
 	PreProcessTriangleKernel << < gridDim, blockDim >> > ();
 	gpuErrchk(cudaGetLastError());
 	gpuErrchk(cudaDeviceSynchronize());
+#ifdef PRINT_INFO
+	t = clock() - t;
+	printf("Preprocess finished, time : %f\n", (float)t / CLOCKS_PER_SEC);
+#endif // PRINT_INFO
 
-	//gpuErrchk(cudaFree(cuMesh.d_idx));
 }
 void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel)
 {

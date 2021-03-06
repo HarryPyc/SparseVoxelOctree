@@ -237,7 +237,7 @@ void OctreeUpdate(Node*& d_node, Voxel*& d_voxel)
 
 	t = clock() - t;
 #ifdef PRINT_INFO
-	printf("Octree Update Complete, %i total nodes in %f sec\n", dNodeCounter, (float)t / CLOCKS_PER_SEC);
+	printf("Octree Update Complete, %i total nodes in %f sec\n\n", dNodeCounter, (float)t / CLOCKS_PER_SEC);
 #endif // PRINT_INFO
 
 }
