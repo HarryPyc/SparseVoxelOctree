@@ -15,6 +15,7 @@ public:
 
 
 void OctreeConstruction(Node*& d_node, Voxel*& d_voxel);
-void RayCastingOctree(uint* d_pbo, glm::vec3 camPos, cudaArray_t back,  Node* d_node);
+void RayCastingOctree(uint* d_pbo, cudaArray_t back,  Node* d_node);
+void VoxelConeTracing(float* d_pbo, cudaArray_t posArray, cudaArray_t normalArray, Node* d_node);
 void initRayCasting();
 void OctreeUpdate(Node*& d_node, Voxel*& d_voxel);

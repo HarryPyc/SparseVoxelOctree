@@ -18,17 +18,20 @@ __host__ __device__ Voxel::~Voxel() {
 
 }
 
- __device__ void Voxel::GetInfo(glm::vec3& color, glm::vec3& normal) {
-	color = glm::vec3(float((c & 0x000000FF)), float((c & 0x0000FF00) >> 8U), float((c & 0x00FF0000) >> 16U));
+ __device__ void Voxel::GetInfo(float& color, glm::vec3& normal) {
+	//color = glm::vec3(float((c & 0x000000FF)), float((c & 0x0000FF00) >> 8U), float((c & 0x00FF0000) >> 16U));
+	color = c;
 	normal = glm::vec3(float((n & 0x000000FF)), float((n & 0x0000FF00) >> 8U), float((n & 0x00FF0000) >> 16U));
-	color /= 255.f;
+	//color /= 255.f;
 	normal = (normal / 255.f) * 2.f - 1.f;
 }
 
- __device__ void Voxel::SetInfo(glm::vec3 color, glm::vec3 normal) {
+ __device__ void Voxel::SetInfo(float color, glm::vec3 normal) {
 
-	color *= 255.f;
-	c = ((uint(color.z) & 0x000000FF) << 16U | (uint(color.y) & 0x000000FF) << 8U | (uint(color.x) & 0x000000FF));
+	//color *= 255.f;
+	//c = ((uint(color.z) & 0x000000FF) << 16U | (uint(color.y) & 0x000000FF) << 8U | (uint(color.x) & 0x000000FF));
+	c = color;
+
 	normal = (normal + 1.f) / 2.f * 255.f;
 	n = ((uint(normal.z) & 0x000000FF) << 16U | (uint(normal.y) & 0x000000FF) << 8U | (uint(normal.x) & 0x000000FF));
 }
@@ -37,7 +40,7 @@ __host__ __device__ Voxel::~Voxel() {
 
 __device__ glm::vec3 Voxel::PhongLighting(glm::vec3 pos)
 {
-	glm::vec3 c;
+	float c;
 	glm::vec3 n;
 	this->GetInfo(c, n);
 	n = glm::normalize(n);
@@ -128,7 +131,7 @@ __global__ void VoxelizationKernel(Voxel* voxelList) {
 					atomicAdd(&voxelCounter, 1);
 					size_t arrayIdx = EncodeMorton(i, j, k);//Get Morton Code
 
-					voxelList[arrayIdx].SetInfo(mesh.color, normal);
+					voxelList[arrayIdx].SetInfo(mesh.color.r, normal);
 
 				}
 
@@ -139,11 +142,14 @@ __global__ void VoxelizationKernel(Voxel* voxelList) {
 __global__ void TransformKernel() {
 	const unsigned idx = blockDim.x * blockIdx.x + threadIdx.x;
 	if (idx >= mesh.vertNum / 3) return;
-	glm::vec4 v(mesh.d_v[3 * idx], mesh.d_v[3 * idx + 1], mesh.d_v[3 * idx + 2], 1.f);
+	glm::vec4 v(1.f), n(0.f);
+	memcpy(&v[0], &mesh.d_v[3 * idx], 3 * sizeof(float));
+	memcpy(&n[0], &mesh.d_n[3 * idx], 3 * sizeof(float));
 	v = mesh.M * v;
-	mesh.d_v[3 * idx] = v.x;
-	mesh.d_v[3 * idx + 1] = v.y;
-	mesh.d_v[3 * idx + 2] = v.z;
+	n = glm::transpose(glm::inverse(mesh.M)) * n;
+	n = glm::normalize(n);
+	memcpy(&mesh.d_v[3 * idx], &v[0], 3 * sizeof(float));
+	memcpy(&mesh.d_n[3 * idx], &n[0], 3 * sizeof(float));
 }
 __global__ void PreProcessTriangleKernel() {
 	const unsigned idx = blockDim.x * blockIdx.x + threadIdx.x;
@@ -192,6 +198,8 @@ void InitVoxelization(Voxel*& d_voxel) {
 }
 
 void PreProcess(CudaMesh& cuMesh) {
+	cuMesh.MapResources();
+
 	clock_t t;
 	t = clock();
 	gpuErrchk(cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)));
@@ -225,21 +233,15 @@ void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel)
 	gpuErrchk(cudaGetLastError());
 	gpuErrchk(cudaDeviceSynchronize());
 
-
-
 	gpuErrchk(cudaMemcpyFromSymbol(&Info.Counter, voxelCounter, sizeof(uint)));
+
+	cuMesh.UnMapResources();
 	t = clock() - t;
 
 #ifdef PRINT_INFO
 	printf("Voxelization finished, time : %f\n", (float)t / CLOCKS_PER_SEC);
 	printf("Voxel Count: %i\n", Info.Counter);
 #endif // PRINT_INFO
-	//Free CudaMesh
-
-	//gpuErrchk(cudaFree(cuMesh.d_v));
-	//gpuErrchk(cudaFree(cuMesh.d_n));
-	//gpuErrchk(cudaFree(cuMesh.d_tri));
-
 }
 
 

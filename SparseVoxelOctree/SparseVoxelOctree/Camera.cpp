@@ -5,7 +5,7 @@
 
 void Camera::UpdatePerspectiveMatrix()
 {
-    P = glm::perspective(hfov, w/h, 0.1f, 100.f);
+    P = glm::perspective(hfov, w/h, 0.1f, 300.f);
 }
 
 void Camera::UpdateViewMatrix()
@@ -15,16 +15,12 @@ void Camera::UpdateViewMatrix()
 
 void Camera::upload(GLuint program)
 {
-    int P_loc = glGetUniformLocation(program, "P");
-    if (P_loc != -1)
+    int PV_loc = glGetUniformLocation(program, "PV");
+    if (PV_loc != -1)
     {
-        glUniformMatrix4fv(P_loc, 1, false, glm::value_ptr(P));
+        glUniformMatrix4fv(PV_loc, 1, false, glm::value_ptr(P * V));
     }
-    int V_loc = glGetUniformLocation(program, "V");
-    if (V_loc != -1)
-    {
-        glUniformMatrix4fv(V_loc, 1, false, glm::value_ptr(V));
-    }
+
     glUniform3fv(glGetUniformLocation(program, "camPos"), 1, &pos[0]);
 }
 

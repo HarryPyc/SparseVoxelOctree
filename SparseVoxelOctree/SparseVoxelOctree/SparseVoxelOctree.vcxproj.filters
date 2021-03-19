@@ -64,5 +64,11 @@
     <None Include="shader\vs.vert">
       <Filter>Shader</Filter>
     </None>
+    <None Include="shader\GBuffer.frag">
+      <Filter>Shader</Filter>
+    </None>
+    <None Include="shader\GBuffer.vert">
+      <Filter>Shader</Filter>
+    </None>
   </ItemGroup>
 </Project>

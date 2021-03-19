@@ -16,12 +16,11 @@
 
 Voxel* d_voxel = NULL; Node* d_node = NULL;
 GLFWwindow* window; uint WIDTH = WINDOW_WIDTH, HEIGHT = WINDOW_HEIGHT;
-GLuint shader, pbo, textureID;
-cudaGraphicsResource_t frontCuda, backCuda, pboCuda;
-Camera cam(WINDOW_WIDTH, WINDOW_HEIGHT, 3.1415926f / 3.f, glm::vec3(2.f, 0.8f, 0.f), glm::vec3(0.f, 0.0f, 0.f));
-FrameBuffer *back;
+GLuint cube_shader, GBuffer_shader, pbo, textureID;
+cudaGraphicsResource_t  backCuda, pboCuda, posCuda, normalCuda;
+Camera cam(WINDOW_WIDTH, WINDOW_HEIGHT, 3.1415926f / 3.f, glm::vec3(20.f, 20.f, 0.f), glm::vec3(0.f, 15.f, 0.f));
+FrameBuffer *GBuffer;
 
-Mesh Cube("asset/model/cube.obj");
 Scene scene;
 extern VoxelizationInfo Info;
 VoxelizationInfo Info;
@@ -31,121 +30,6 @@ bool pause = true;
 void error_callback(int error, const char* description)
 {
 	fprintf(stderr, "Error: %s\n", description);
-}
-void printGlInfo()
-{
-	std::cout << "Vendor: " << glGetString(GL_VENDOR) << std::endl;
-	std::cout << "Renderer: " << glGetString(GL_RENDERER) << std::endl;
-	std::cout << "Version: " << glGetString(GL_VERSION) << std::endl;
-	std::cout << "GLSL Version: " << glGetString(GL_SHADING_LANGUAGE_VERSION) << std::endl;
-}
-void initOpenGL() {
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
-	if (!glfwInit()) {
-		std::cout << "GLFW Init Failed" << std::endl;
-	}
-	window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "CS535_Yucong", NULL, NULL);
-	if (!window) {
-		std::cout << "Window Creation Failed" << std::endl;
-	}
-	glfwMakeContextCurrent(window);
-	if (glewInit() != GLEW_OK)
-	{
-		std::cout << "GLEW initialization failed.\n";
-	}
-	glfwSwapInterval(1);
-
-	glGenBuffers(1, &pbo);
-	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
-	glBufferData(GL_PIXEL_UNPACK_BUFFER, WINDOW_WIDTH * WINDOW_HEIGHT * sizeof(unsigned int), 0, GL_DYNAMIC_COPY);
-	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-
-	glGenTextures(1, &textureID);
-	glBindTexture(GL_TEXTURE_2D, textureID);
-
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, WINDOW_WIDTH, WINDOW_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-}
-void initInfo() {
-	//Reconstruct AABB
-	glm::vec3 _minAABB = glm::vec3(scene.static_mesh->data.min[0], scene.static_mesh->data.min[1], scene.static_mesh->data.min[2]);
-	glm::vec3 _maxAABB = glm::vec3(scene.static_mesh->data.max[0], scene.static_mesh->data.max[1], scene.static_mesh->data.max[2]);
-	_minAABB -= 0.1f;
-	_maxAABB += 0.1f;//Small Offset
-	glm::vec3 l = _maxAABB - _minAABB;
-	printf("Mesh AABB size: %f\n", glm::length(_maxAABB - _minAABB));
-	Info.delta = glm::max(l.x, glm::max(l.y, l.z));
-	Info.minAABB = (_minAABB + _maxAABB) / 2.f - Info.delta / 2.f;
-	Info.camPos = cam.pos;
-	Info.lightPos = glm::vec3(0.5f, 0.5f, 0.f);
-	Info.ka = 0.2f, Info.kd = 0.4f, Info.ks = 0.4f;
-	Info.alpha = 5.f;
-	Info.Dim = voxelDim;
-	h_MIPMAP = glm::log2(voxelDim);
-}
-void init() {
-	scene.Upload();
-	Cube.CreateVao();
-	//Cube.M = glm::translate(Info.minAABB + Info.delta/2.f) * glm::scale(glm::vec3(Info.delta / 2.f));
-	back = new FrameBuffer(WINDOW_WIDTH, WINDOW_HEIGHT);
-	shader = InitShader("shader/vs.vert", "shader/fs.frag");
-	glUseProgram(shader);
-	glEnable(GL_DEPTH_TEST);
-	glEnable(GL_CULL_FACE);
-	//Bind opengl buffer to cuda
-	back->BindToDevice(backCuda);
-	if (cudaGraphicsGLRegisterBuffer(&pboCuda, pbo, cudaGraphicsRegisterFlagsNone) != cudaSuccess)
-		printf("cuda bind pbo failed\n");
-
-}
-void display() {
-	glUseProgram(0);
-	glViewport(0, 0, WIDTH, HEIGHT);
-	glEnable(GL_TEXTURE_2D);
-	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
-	glBindTexture(GL_TEXTURE_2D, textureID);
-	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT,
-		GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-	
-	glBegin(GL_QUADS);
-	glTexCoord2f(0.0f, 0.0f); glVertex3f(-1.0f, -1.0f, 0.0f);
-	glTexCoord2f(0.0f, 1.0f); glVertex3f(-1.0f, 1.0f, 0.0f);
-	glTexCoord2f(1.0f, 1.0f); glVertex3f(1.0f, 1.0f, 0.0f);
-	glTexCoord2f(1.0f, 0.0f); glVertex3f(1.0f, -1.0f, 0.0f);
-	glEnd();
-
-	glDisable(GL_TEXTURE_2D);
-}
-
-void RayMarching() {
-	
-	glCullFace(GL_FRONT);
-	back->Enable();
-	back->DrawBuffer();
-	Cube.Draw();
-	back->DisAble();
-	//cuda map resources
-	cudaGraphicsResource_t resources[2] = { backCuda, pboCuda };
-	if (cudaGraphicsMapResources(2, resources) != cudaSuccess)
-		printf("cuda map resources failed\n");
-	cudaArray_t backArray;
-	unsigned int* d_pbo;
-	if (cudaGraphicsSubResourceGetMappedArray(&backArray, backCuda, 0, 0) != cudaSuccess)
-		printf("d_back map pointer failed\n");
-
-	//bind pixel buffer
-	size_t numBytes = WINDOW_WIDTH * WINDOW_HEIGHT * sizeof(unsigned int);
-	if (cudaGraphicsResourceGetMappedPointer((void**)&d_pbo, &numBytes, pboCuda) != cudaSuccess)
-		printf("d_pbo map pointer failed\n");
-	//run cuda kernel
-	RayCastingOctree(d_pbo, cam.pos, backArray, d_node);
-
-	//unmap resource
-	if (cudaGraphicsUnmapResources(2, resources) != cudaSuccess)
-		printf("cuda unmap resources failed\n");
 }
 
 bool update = false;
@@ -182,6 +66,154 @@ void resize_callback(GLFWwindow* window, int width, int height) {
 	WIDTH = width, HEIGHT = height;
 }
 
+void printGlInfo()
+{
+	std::cout << "Vendor: " << glGetString(GL_VENDOR) << std::endl;
+	std::cout << "Renderer: " << glGetString(GL_RENDERER) << std::endl;
+	std::cout << "Version: " << glGetString(GL_VERSION) << std::endl;
+	std::cout << "GLSL Version: " << glGetString(GL_SHADING_LANGUAGE_VERSION) << std::endl;
+}
+void initOpenGL() {
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+	if (!glfwInit()) {
+		std::cout << "GLFW Init Failed" << std::endl;
+	}
+	window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "CS535_Yucong", NULL, NULL);
+	if (!window) {
+		std::cout << "Window Creation Failed" << std::endl;
+	}
+	glfwMakeContextCurrent(window);
+	if (glewInit() != GLEW_OK)
+	{
+		std::cout << "GLEW initialization failed.\n";
+	}
+	glfwSwapInterval(1);
+
+	glfwSetErrorCallback(error_callback);
+	printGlInfo();
+
+	glfwSetKeyCallback(window, key_callback);
+	glfwSetFramebufferSizeCallback(window, resize_callback);
+
+	glGenBuffers(1, &pbo);
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+	glBufferData(GL_PIXEL_UNPACK_BUFFER, WINDOW_WIDTH * WINDOW_HEIGHT * sizeof(float) * 4, 0, GL_DYNAMIC_COPY);
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+
+	glGenTextures(1, &textureID);
+	glBindTexture(GL_TEXTURE_2D, textureID);
+
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, WINDOW_WIDTH, WINDOW_HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
+
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_FRAMEBUFFER_SRGB);
+}
+void initInfo() {
+	//Reconstruct AABB
+	glm::vec3 _minAABB = glm::vec3(scene.static_mesh->data.min[0], scene.static_mesh->data.min[1], scene.static_mesh->data.min[2]);
+	glm::vec3 _maxAABB = glm::vec3(scene.static_mesh->data.max[0], scene.static_mesh->data.max[1], scene.static_mesh->data.max[2]);
+	_minAABB -= 0.1f;
+	_maxAABB += 0.1f;//Small Offset
+	glm::vec3 l = _maxAABB - _minAABB;
+	printf("Mesh AABB size: %f\n", glm::length(_maxAABB - _minAABB));
+	Info.delta = glm::max(l.x, glm::max(l.y, l.z));
+	Info.minAABB = (_minAABB + _maxAABB) / 2.f - Info.delta / 2.f;
+	Info.camPos = cam.pos;
+	Info.lightPos = glm::vec3(0.5f, 0.5f, 0.f);
+	Info.ka = 0.2f, Info.kd = 0.4f, Info.ks = 0.4f;
+	Info.alpha = 5.f;
+	Info.Dim = voxelDim;
+	h_MIPMAP = glm::log2(voxelDim);
+}
+void initScene() {
+	scene.Upload();
+
+	GBuffer = new FrameBuffer(WINDOW_WIDTH, WINDOW_HEIGHT, 2);
+	GBuffer_shader = InitShader("shader/GBuffer.vert", "shader/GBuffer.frag");
+
+	//Bind opengl buffer to cuda
+	cudaGraphicsResource_t* resources[2]{ &posCuda, &normalCuda };
+	GBuffer->BindToDevice(resources);
+
+	gpuErrchk(cudaGraphicsGLRegisterBuffer(&pboCuda, pbo, cudaGraphicsRegisterFlagsNone));
+
+}
+void display() {
+	glUseProgram(0);
+	glViewport(0, 0, WIDTH, HEIGHT);
+	glEnable(GL_TEXTURE_2D);
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+	glBindTexture(GL_TEXTURE_2D, textureID);
+	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT,
+		GL_RGBA, GL_FLOAT, NULL);
+	
+	glBegin(GL_QUADS);
+	glTexCoord2f(0.0f, 0.0f); glVertex3f(-1.0f, -1.0f, 0.0f);
+	glTexCoord2f(0.0f, 1.0f); glVertex3f(-1.0f, 1.0f, 0.0f);
+	glTexCoord2f(1.0f, 1.0f); glVertex3f(1.0f, 1.0f, 0.0f);
+	glTexCoord2f(1.0f, 0.0f); glVertex3f(1.0f, -1.0f, 0.0f);
+	glEnd();
+
+	glDisable(GL_TEXTURE_2D);
+}
+
+void DrawSSAO() {
+	glUseProgram(GBuffer_shader);
+	cam.upload(GBuffer_shader);
+	GBuffer->Enable();
+	GBuffer->DrawBuffer();
+	scene.DrawMesh();
+	GBuffer->DisAble();
+
+	cudaGraphicsResource_t resources[3]{ posCuda, normalCuda, pboCuda };
+	gpuErrchk(cudaGraphicsMapResources(3, resources));
+
+	cudaArray_t posArray, normalArray;
+	gpuErrchk(cudaGraphicsSubResourceGetMappedArray(&posArray, posCuda, 0, 0));
+	gpuErrchk(cudaGraphicsSubResourceGetMappedArray(&normalArray, normalCuda, 0, 0));
+
+	size_t numBytes;
+	float* d_pbo;
+	gpuErrchk(cudaGraphicsResourceGetMappedPointer((void**)&d_pbo, &numBytes, pboCuda));
+	VoxelConeTracing(d_pbo, posArray, normalArray, d_node);
+
+	gpuErrchk(cudaGraphicsUnmapResources(3, resources));
+}
+
+//void RayMarching() {
+//	
+//	glCullFace(GL_FRONT);
+//	back->Enable();
+//	back->DrawBuffer();
+//	Cube.Draw();
+//	back->DisAble();
+//	//cuda map resources
+//	cudaGraphicsResource_t resources[2] = { backCuda, pboCuda };
+//	if (cudaGraphicsMapResources(2, resources) != cudaSuccess)
+//		printf("cuda map resources failed\n");
+//	cudaArray_t backArray;
+//	unsigned int* d_pbo;
+//	if (cudaGraphicsSubResourceGetMappedArray(&backArray, backCuda, 0, 0) != cudaSuccess)
+//		printf("d_back map pointer failed\n");
+//
+//	//bind pixel buffer
+//	size_t numBytes = WINDOW_WIDTH * WINDOW_HEIGHT * sizeof(unsigned int);
+//	if (cudaGraphicsResourceGetMappedPointer((void**)&d_pbo, &numBytes, pboCuda) != cudaSuccess)
+//		printf("d_pbo map pointer failed\n");
+//	//run cuda kernel
+//	RayCastingOctree(d_pbo, backArray, d_node);
+//
+//	//unmap resource
+//	if (cudaGraphicsUnmapResources(2, resources) != cudaSuccess)
+//		printf("cuda unmap resources failed\n");
+//}
+
+
+
 int main() {
 	/*if (cudaSetDevice(0) != cudaSuccess) {
 		printf("cudaSetDevice Failed");
@@ -189,19 +221,12 @@ int main() {
 	}*/
 
 	initOpenGL();
-	glfwSetErrorCallback(error_callback);
-	printGlInfo();
-
 	initInfo();
-	init();
-	glfwSetKeyCallback(window, key_callback);
-	glfwSetFramebufferSizeCallback(window, resize_callback);
-
+	initScene();
 	initRayCasting();
-	scene.SceneVoxelization(d_voxel);
+
+	scene.StaticVoxelization(d_voxel);
 	OctreeConstruction(d_node, d_voxel);
-
-
 
 	clock_t t = clock();
 	float t_total = 0.f, frames = 0.f;
@@ -221,9 +246,7 @@ int main() {
 		cam.UpdateViewMatrix();
 		Info.camPos = cam.pos;
 
-		glUseProgram(shader);
-		cam.upload(shader);
-		RayMarching();
+		DrawSSAO();
 		display();
 
 
@@ -240,7 +263,8 @@ int main() {
 		glfwPollEvents();
 	}
 
-	delete back;
+	delete GBuffer;
+	gpuErrchk(cudaFree(d_node));
 	glfwDestroyWindow(window);
 	glfwTerminate();
 	return 0;

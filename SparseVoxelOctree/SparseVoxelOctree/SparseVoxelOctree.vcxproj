@@ -111,6 +111,8 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="shader\fs.frag" />
+    <None Include="shader\GBuffer.frag" />
+    <None Include="shader\GBuffer.vert" />
     <None Include="shader\vs.vert" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

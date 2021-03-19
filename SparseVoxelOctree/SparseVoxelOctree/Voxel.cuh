@@ -2,6 +2,7 @@
 #include "cuda_runtime.h"
 #include <cuda.h>
 #define GLM_FORCE_CUDA
+#define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
 #include "Mesh.h"
 #define PRINT_INFO
@@ -12,13 +13,14 @@ public:
 	__host__ __device__ Voxel();
 	__host__ __device__ ~Voxel();
 
-	__device__ void GetInfo(glm::vec3& color, glm::vec3& normal);
-	__device__ void SetInfo(glm::vec3 color,  glm::vec3 normal);
+	__device__ void GetInfo(float &c, glm::vec3& normal);
+	__device__ void SetInfo(float c,  glm::vec3 normal);
 
-	__device__ inline bool empty() { return c == 0; }
+	__device__ inline bool empty() { return n == 0; }
 	__device__ glm::vec3 PhongLighting(glm::vec3 pos);
 
-	unsigned int c, n;
+	unsigned int n;
+	float c;
 
 };
 

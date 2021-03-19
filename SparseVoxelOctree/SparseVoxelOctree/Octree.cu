@@ -15,8 +15,7 @@ Node root, sRoot, dRoot;
 int sNodeCounter, dNodeCounter;
 __device__ int nodeCounter, dynamicNodeCounter, traverseCounter;
 
-texture<float4, 2, cudaReadModeElementType> backTex;
-texture<uint4, 1, cudaReadModeElementType> octree;
+texture<float4, 2, cudaReadModeElementType> backTex, posTex, normalTex;
 texture<float4, cudaTextureTypeCubemap, cudaReadModeElementType> skyBox;
 
 __host__ __device__ Node::Node() : voxel() {
@@ -32,14 +31,20 @@ __host__ __device__ Node::~Node() {
 
 void initCudaTexture()
 {
-	backTex.addressMode[0] = cudaAddressModeWrap;
-	backTex.addressMode[1] = cudaAddressModeWrap;
-	backTex.filterMode = cudaFilterModeLinear;
-	backTex.normalized = true;
+	//backTex.addressMode[0] = cudaAddressModeWrap;
+	//backTex.addressMode[1] = cudaAddressModeWrap;
+	//backTex.filterMode = cudaFilterModeLinear;
+	//backTex.normalized = true;
 
-	octree.addressMode[0] = cudaAddressModeWrap;
-	octree.filterMode = cudaFilterModePoint;
-	octree.normalized = false;
+	posTex.addressMode[0] = cudaAddressModeWrap;
+	posTex.addressMode[1] = cudaAddressModeWrap;
+	posTex.filterMode = cudaFilterModeLinear;
+	posTex.normalized = true;
+
+	normalTex.addressMode[0] = cudaAddressModeWrap;
+	normalTex.addressMode[1] = cudaAddressModeWrap;
+	normalTex.filterMode = cudaFilterModeLinear;
+	normalTex.normalized = true;
 }
 
 __global__ void OctreeConstructKernel(Node* d_node, Voxel* d_voxel, Voxel* d_nextVoxel, int* d_ptr, int* d_nextPtr) {
@@ -50,7 +55,8 @@ __global__ void OctreeConstructKernel(Node* d_node, Voxel* d_voxel, Voxel* d_nex
 	//for (int i = 0; i < 8; i++)
 	//	voxels[threadIdx.x * 8 + i] = d_voxel[idx * 8 + i];//copy to shared memory
 
-	glm::vec3 color(0.f), normal(0.f);
+	glm::vec3 normal(0.f);
+	float color = 0.f;
 	int counter = 0;
 	int bitMask = 0;
 	Voxel v;
@@ -58,7 +64,8 @@ __global__ void OctreeConstructKernel(Node* d_node, Voxel* d_voxel, Voxel* d_nex
 		//v = voxels[threadIdx.x * 8 + i];
 		v = d_voxel[idx * 8 + i];
 		if (!v.empty()) {
-			glm::vec3 c, n;
+			glm::vec3 n;
+			float c;
 			v.GetInfo(c, n);
 			color += c, normal += n;
 			counter++;
@@ -72,7 +79,7 @@ __global__ void OctreeConstructKernel(Node* d_node, Voxel* d_voxel, Voxel* d_nex
 			d_node[arrayIdx + i] = Node(ptr, d_voxel[idx * 8 + i]);
 		}
 		Voxel voxel;
-		voxel.SetInfo(color / float(counter), glm::normalize(normal / float(counter)));
+		voxel.SetInfo(color / 8.f, glm::normalize(normal / float(counter)));
 		voxel.n |= bitMask << 24U;
 		d_nextVoxel[idx] = voxel;
 		d_nextPtr[idx] = arrayIdx;
@@ -85,8 +92,8 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel)
 	clock_t t = clock();
 	const int MAX_DEPTH = log2(Info.Dim);
 	gpuErrchk(cudaMemcpyToSymbol(d_MAX_DEPTH, &MAX_DEPTH, sizeof(int)));
-	//size_t NODE_SIZE= ((1 << 3 * (MAX_DEPTH + 1)) - 1) / 7 * sizeof(Node);
-	size_t NODE_SIZE = 5e6 * sizeof(Node);
+	size_t NODE_SIZE= ((1 << 3 * (MAX_DEPTH + 1)) - 1) / 7 * sizeof(Node);
+	//size_t NODE_SIZE = 5e6 * sizeof(Node);
 
 	gpuErrchk(cudaMalloc((void**)&d_node, NODE_SIZE));
 	gpuErrchk(cudaMemset(d_node, 0, NODE_SIZE));
@@ -151,7 +158,8 @@ __global__ void OctreeUpdateKernel(Node* d_node, Node root, Voxel* d_voxel, Voxe
 	const int idx = blockDim.x * blockIdx.x + threadIdx.x;
 	if (idx >= 1 << 3 * (curDepth - 1)) return;
 
-	glm::vec3 color(0.f), normal(0.f);
+	glm::vec3 normal(0.f);
+	float color = 0.f;
 	int counter = 0;
 	int bitMask = 0;
 	Voxel v;
@@ -160,7 +168,8 @@ __global__ void OctreeUpdateKernel(Node* d_node, Node root, Voxel* d_voxel, Voxe
 	for (int i = 0; i < 8; i++) {
 		v = d_voxel[idx * 8 + i];
 		if (!v.empty()) {
-			glm::vec3 c, n;
+			glm::vec3  n;
+			float c;
 			v.GetInfo(c, n);
 			color += c, normal += n;
 			counter++;
@@ -186,7 +195,7 @@ __global__ void OctreeUpdateKernel(Node* d_node, Node root, Voxel* d_voxel, Voxe
 			d_node[arrayIdx + i] = Node(ptr, d_voxel[idx * 8 + i]);
 		}
 		Voxel voxel;
-		voxel.SetInfo(color / float(counter), glm::normalize(normal / float(counter)));
+		voxel.SetInfo(color / 8.f, glm::normalize(normal / float(counter)));
 		voxel.n |= bitMask << 24U;
 		d_nextVoxel[idx] = voxel;
 		d_nextPtr[idx] = arrayIdx;
@@ -243,15 +252,20 @@ void OctreeUpdate(Node*& d_node, Voxel*& d_voxel)
 }
 
 
-
 struct Ray {
 	glm::vec3 o, d, invD;
-	uint depth; bool inside;
-	__device__ Ray(glm::vec3 origin, glm::vec3 dir, uint Depth = 0, bool Inside = false) 
-		: o(origin), d(dir), depth(Depth), inside(Inside) {
+	float tanT;
+	__device__ Ray(glm::vec3 origin, glm::vec3 dir, float theta) 
+		: o(origin), d(dir){
 		invD = glm::vec3(1.f) / dir;
+		tanT = glm::tan(glm::radians(theta));
 	}
 	__device__ ~Ray() {};
+	__device__ inline bool Reach(float t, int curLevel) {
+		float curDelta = d_Info.delta / float(1 << curLevel);
+		float diam = 2.f * t * tanT;
+		return diam >= curDelta && diam < curDelta * 2.f;
+	}
 	__device__ inline bool RayAABBIntersection(glm::vec3 minAABB, glm::vec3 maxAABB, float &t) {
 		glm::vec3 t0s = (minAABB - o) * invD;
 		glm::vec3 t1s = (maxAABB - o) * invD;
@@ -272,19 +286,20 @@ struct HitInfo {
 	__device__ HitInfo(glm::uvec3 _idx, float _t) : idx(_idx), t(_t) {};
 };
 
-__device__ Voxel OctreeTraverse(Node* d_node, Node root, Ray ray, glm::vec3 minAABB, uint currentLevel, float& t) {
+__device__ float OctreeTraverse(Node* d_node, Node &root, Ray &ray, glm::vec3 &minAABB, uint currentLevel, float t) {
 	//atomicAdd(&traverseCounter, 1U);
+	if (ray.Reach(t, currentLevel))
+		return root.voxel.c;
 	if (currentLevel == MIPMAP)
-		return root.voxel;
+		return root.voxel.c;
 	if (root.ptr == NULLPTR)
-		return Voxel();
+		return 0.f;
 	
 	currentLevel++;
 	HitInfo hits[8];
 	int counter = 0;
-	float temp = 999.f;
 
-	const float delta = d_Info.delta / float((1 << (currentLevel)));
+	const float delta = d_Info.delta / float((1 << currentLevel));
 	for (int i = 0; i < 8; i++) {
 		glm::uvec3 idx(i & 1, (i >> 1) & 1, i >> 2);
 		glm::vec3 _minAABB = minAABB + glm::vec3(idx) * delta;
@@ -303,80 +318,149 @@ __device__ Voxel OctreeTraverse(Node* d_node, Node root, Ray ray, glm::vec3 minA
 				hits[j + 1] = temp;
 			}
 		}
+
+
 	for (int i = 0; i < counter; i++) {
 		Node _root = d_node[root.ptr + hits[i].idx.x + hits[i].idx.y * 2 + hits[i].idx.z * 4];
 		glm::vec3 _minAABB = minAABB + glm::vec3(hits[i].idx) * delta;
-		Voxel voxel = OctreeTraverse(d_node, _root, ray, _minAABB, currentLevel,  t);
-		if (!voxel.empty()) {
-			glm::vec3 c;
-			glm::vec3 n;
-			voxel.GetInfo(c, n);
-
-			if (currentLevel == MIPMAP)
-				t = hits[i].t;
-			return voxel;
+		float ret = OctreeTraverse(d_node, _root, ray, _minAABB, currentLevel,  hits[i].t);
+		if (ret != 0.f) {
+			float f = glm::length(_minAABB + delta / 2.f - (ray.o + ray.d * hits[i].t)) / (1.4142f * delta / 4.f);
+			return ret ;
 		}
 	}
-	return Voxel();
+	return 0.f;
 }
 
-__global__ void RayCastKernel(uint* d_pbo, Node* d_node, const uint w, const uint h, Node root) {
+//__device__ float OctreeTraverse(Node* d_node, Node& root, Ray &ray, glm::vec3 &minAABB, uint currentLevel, float t) {
+//	//atomicAdd(&traverseCounter, 1U);
+//	if (ray.Reach(t, currentLevel))
+//		return root.voxel.c;
+//	if (currentLevel == MIPMAP)
+//		return root.voxel.c;
+//	if (root.ptr == NULLPTR)
+//		return 0.f;
+//
+//	currentLevel++;
+//	float sum = 0.f;
+//
+//	const float delta = d_Info.delta / float((1 << (currentLevel)));
+//	for (int i = 0; i < 8; i++) {
+//		glm::uvec3 idx(i & 1, (i >> 1) & 1, i >> 2);
+//		glm::vec3 _minAABB = minAABB + glm::vec3(idx) * delta;
+//		float _t;
+//		if (root.hasVoxel(i) && ray.RayAABBIntersection(_minAABB, _minAABB + delta, _t)) {// !d_node[root.ptr + i].voxel.empty()
+//			sum += OctreeTraverse(d_node, d_node[root.ptr + i], ray, _minAABB, currentLevel, _t) / (1.f + 0.5f * _t);
+//		}
+//	}
+//
+//	return sum;
+//}
+
+//__global__ void RayCastKernel(uint* d_pbo, Node* d_node, const uint w, const uint h, Node root) {
+//	const unsigned int x = blockDim.x * blockIdx.x + threadIdx.x,
+//			y = blockDim.y * blockIdx.y + threadIdx.y;
+//	if (x >= w || y >= h) return;
+//	d_pbo[y * w + x] = 0;
+//	const float u = float(x) / float(w), v = float(y) / float(h);
+//	float4 backSample = tex2D(backTex, u, v);
+//		
+//	glm::vec3 dir = glm::normalize(glm::vec3(backSample.x, backSample.y, backSample.z));
+//	Ray ray(d_Info.camPos, dir, 0);
+//
+//	glm::vec3 color(0.f);
+//	float t;
+//	if (ray.RayAABBIntersection(d_Info.minAABB, d_Info.minAABB + d_Info.delta, t)) {
+//		t = 999.f;
+//		Voxel voxel = OctreeTraverse(d_node, root, ray, d_Info.minAABB, 0, t);
+//		glm::vec3 pos = ray.o + t * ray.d;
+//		if(!voxel.empty())
+//			color = voxel.PhongLighting(pos);
+//		else {
+//			float4 texel = texCubemap(skyBox, dir.x, dir.y, dir.z);
+//			color = glm::vec4(texel.x, texel.y, texel.z, 1.f);
+//		}
+//
+//	}
+//	else {
+//		float4 texel = texCubemap(skyBox, dir.x, dir.y, dir.z);
+//		color = glm::vec3(texel.x, texel.y, texel.z);
+//	}
+//	//Gamma Correction
+//	color = glm::pow(color, glm::vec3(1.f / 2.2f));
+//	d_pbo[y * w + x] = ConvVec4ToUint(glm::vec4(color, 1.f));
+//
+//}
+//
+//
+//void RayCastingOctree(uint* d_pbo, cudaArray_t back, Node* d_node)
+//{
+//	gpuErrchk(cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)));
+//
+//	cudaMemcpyToSymbol(MIPMAP, &h_MIPMAP, 4);
+//	uint h_tCounter = 0;
+//	cudaMemcpyToSymbol(traverseCounter, &h_tCounter, 4);
+//
+//	cudaChannelFormatDesc format = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
+//
+//	gpuErrchk(cudaBindTextureToArray(&backTex, back, &format));
+//
+//	//launch cuda kernel
+//	dim3 blockDim(16, 16, 1), gridDim(WINDOW_WIDTH / blockDim.x + 1, WINDOW_HEIGHT / blockDim.y + 1, 1);
+//	RayCastKernel << <gridDim, blockDim >> > (d_pbo, d_node, WINDOW_WIDTH, WINDOW_HEIGHT, root);
+//	gpuErrchk(cudaGetLastError());
+//	gpuErrchk(cudaDeviceSynchronize());
+//
+//	cudaMemcpyFromSymbol(&h_tCounter, traverseCounter, 4);
+//	//printf("Traverse Count: %u\n", h_tCounter);
+//	gpuErrchk(cudaUnbindTexture(backTex));
+//}
+
+
+__global__ void ConeTracingKernel(float* d_pbo, Node* d_node, const uint w, const uint h, Node root) {
 	const unsigned int x = blockDim.x * blockIdx.x + threadIdx.x,
-			y = blockDim.y * blockIdx.y + threadIdx.y;
+		y = blockDim.y * blockIdx.y + threadIdx.y;
 	if (x >= w || y >= h) return;
-	d_pbo[y * w + x] = 0;
+	const unsigned long long idx = (unsigned long long)y * w + x;
 	const float u = float(x) / float(w), v = float(y) / float(h);
-	float4 backSample = tex2D(backTex, u, v);
-		
-	glm::vec3 dir = glm::normalize(glm::vec3(backSample.x, backSample.y, backSample.z));
-	Ray ray(d_Info.camPos, dir, 0);
+	
+	float4 posSample = tex2D(posTex, u, v), normalSample = tex2D(normalTex, u, v);
+	glm::vec3 pos, normal;
+	memcpy(&pos[0], &posSample, 3 * sizeof(float));
+	memcpy(&normal[0], &normalSample, 3 * sizeof(float));
+	pos += d_Info.delta * normal / float(1 << d_MAX_DEPTH - 1);
+	glm::vec3 nu = glm::normalize(glm::cross(normal, glm::vec3(1.f))), nv = glm::cross(normal, nu);
+	const float sin30 = 0.5f, cos30 = sqrt(3.f) / 2.f;
 
-	glm::vec3 color(0.f);
-	float t;
-	if (ray.RayAABBIntersection(d_Info.minAABB, d_Info.minAABB + d_Info.delta, t)) {
-		t = 999.f;
-		Voxel voxel = OctreeTraverse(d_node, root, ray, d_Info.minAABB, 0, t);
-		glm::vec3 pos = ray.o + t * ray.d;
-		if(!voxel.empty())
-			color = voxel.PhongLighting(pos);
-		else {
-			float4 texel = texCubemap(skyBox, dir.x, dir.y, dir.z);
-			color = glm::vec4(texel.x, texel.y, texel.z, 1.f);
-		}
+	glm::vec3 visibility(0.f);
+	float t = 1e5f;
+	visibility += OctreeTraverse(d_node, root, Ray(pos, normal, 30.f), d_Info.minAABB, 0, t);
+	visibility += OctreeTraverse(d_node, root, Ray(pos, normal * sin30 + u * cos30, 30.f), d_Info.minAABB, 0, t);
+	visibility += OctreeTraverse(d_node, root, Ray(pos, normal * sin30 + -u * cos30, 30.f), d_Info.minAABB, 0, t);
+	visibility += OctreeTraverse(d_node, root, Ray(pos, normal * sin30 + v * cos30, 30.f), d_Info.minAABB, 0, t);
+	visibility += OctreeTraverse(d_node, root, Ray(pos, normal * sin30 + -v * cos30, 30.f), d_Info.minAABB, 0, t);
 
-	}
-	else {
-		float4 texel = texCubemap(skyBox, dir.x, dir.y, dir.z);
-		color = glm::vec3(texel.x, texel.y, texel.z);
-	}
-	//Gamma Correction
-	color = glm::pow(color, glm::vec3(1.f / 2.2f));
-	d_pbo[y * w + x] = ConvVec4ToUint(glm::vec4(color, 1.f));
 
+	visibility = 1.0f - visibility / 5.f;
+	memcpy(d_pbo + 4 * idx, &visibility[0], 3 * sizeof(float));
 }
 
-
-void RayCastingOctree(uint* d_pbo, glm::vec3 h_camPos, cudaArray_t back, Node* d_node)
+void VoxelConeTracing(float* d_pbo, cudaArray_t posArray, cudaArray_t normalArray, Node* d_node)
 {
 	gpuErrchk(cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)));
-
 	cudaMemcpyToSymbol(MIPMAP, &h_MIPMAP, 4);
-	uint h_tCounter = 0;
-	cudaMemcpyToSymbol(traverseCounter, &h_tCounter, 4);
 
 	cudaChannelFormatDesc format = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
+	gpuErrchk(cudaBindTextureToArray(&posTex, posArray, &format));
+	gpuErrchk(cudaBindTextureToArray(&normalTex, normalArray, &format));
 
-	gpuErrchk(cudaBindTextureToArray(&backTex, back, &format));
-
-	//launch cuda kernel
 	dim3 blockDim(16, 16, 1), gridDim(WINDOW_WIDTH / blockDim.x + 1, WINDOW_HEIGHT / blockDim.y + 1, 1);
-	RayCastKernel << <gridDim, blockDim >> > (d_pbo, d_node, WINDOW_WIDTH, WINDOW_HEIGHT, root);
+	ConeTracingKernel << <gridDim, blockDim >> > (d_pbo, d_node, WINDOW_WIDTH, WINDOW_HEIGHT, root);
 	gpuErrchk(cudaGetLastError());
 	gpuErrchk(cudaDeviceSynchronize());
 
-	cudaMemcpyFromSymbol(&h_tCounter, traverseCounter, 4);
-	//printf("Traverse Count: %u\n", h_tCounter);
-	gpuErrchk(cudaUnbindTexture(backTex));
+	gpuErrchk(cudaUnbindTexture(posTex));
+	gpuErrchk(cudaUnbindTexture(normalTex));
 }
 
 void initSkyBox() {
@@ -426,12 +510,8 @@ void initSkyBox() {
 void initRayCasting()
 {
 	initCudaTexture();
-	initSkyBox();
-	//cudaChannelFormatDesc format = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindUnsigned);
-	//size_t octree_size = size_t(h_curIdx) * sizeof(Node);
-	//size_t offset = 0;
-	//cudaStatus = cudaBindTexture(&offset, &octree, d_node, &format, octree_size);
-	//if (cudaStatus != cudaSuccess) printf("cudaBindTexture Failed, error: %s\n", cudaGetErrorString(cudaStatus));
+	//initSkyBox();
+
 	gpuErrchk(cudaDeviceSetLimit(cudaLimitStackSize, 1024 * 16));
 
 }
