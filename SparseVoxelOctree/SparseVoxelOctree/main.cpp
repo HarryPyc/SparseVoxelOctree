@@ -22,7 +22,7 @@ cudaGraphicsResource_t frontCuda, backCuda, pboCuda;
 Camera cam(WINDOW_WIDTH, WINDOW_HEIGHT, 3.1415926f / 3.f, glm::vec3(0, 1.5, 1.5));
 FrameBuffer *front, *back;
 //870K triangle dragon
-Mesh mesh("asset/model/dragon.obj"), Cube("asset/model/cube.obj");
+Mesh mesh("asset/model/test_scene.obj"), Cube("asset/model/cube.obj");
 CudaMesh cuMesh; 
 extern VoxelizationInfo Info;
 VoxelizationInfo Info;

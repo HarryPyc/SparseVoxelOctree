@@ -104,7 +104,11 @@ void initCudaTexture()
 
 void OctreeConstruction(Node*& d_node, Voxel*& d_voxel, uint* d_idx)
 {
-	
+	cudaEvent_t start_event, stop_event;
+	cudaEventCreate(&start_event);
+	cudaEventCreate(&stop_event);
+	cudaEventRecord(start_event);
+
 	cudaError_t cudaStatus;
 	const uint h_maxLevel = glm::log2(Info.Dim);
 	uint h_start = 0, h_curIdx = 1;
@@ -117,7 +121,7 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel, uint* d_idx)
 
 	cudaStatus = cudaMalloc((void**)&d_node, Info.Counter * sizeof(Node));
 	if (cudaStatus != cudaSuccess) printf("d_Node cudaMalloc Failed\n");
-	clock_t time = clock();
+	
 	for (uint i = 0; i < h_maxLevel; i++) {
 		cudaMemcpyToSymbol(curLevel, &i, sizeof(uint));
 
@@ -164,8 +168,12 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel, uint* d_idx)
 		cudaStatus = cudaDeviceSynchronize();
 		if (cudaStatus != cudaSuccess) printf("MimmapKernel cudaDeviceSynchronize Failed\n");
 	}
-	time = clock() - time;
-	printf("Octree Constructed, time: %f\n", float(time) / CLOCKS_PER_SEC);
+
+	cudaEventRecord(stop_event);
+	cudaEventSynchronize(stop_event);
+	float milliseconds = 0;
+	cudaEventElapsedTime(&milliseconds, start_event, stop_event);
+	printf("Octree Constructed, time: %f\n", milliseconds);
 	printf("Octree Total Nodes : %u\n", h_curIdx);
 	//Node h_node[8777];
 	//cudaMemcpy(h_node, d_node, sizeof(Node) * 8777, cudaMemcpyDeviceToHost);
