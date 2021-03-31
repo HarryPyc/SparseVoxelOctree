@@ -325,7 +325,7 @@ __device__ float OctreeTraverse(Node* d_node, Node &root, Ray &ray, glm::vec3 &m
 		glm::vec3 _minAABB = minAABB + glm::vec3(hits[i].idx) * delta;
 		float ret = OctreeTraverse(d_node, _root, ray, _minAABB, currentLevel,  hits[i].t);
 		if (ret != 0.f) {
-			float f = glm::length(_minAABB + delta / 2.f - (ray.o + ray.d * hits[i].t)) / (1.4142f * delta / 4.f);
+			//float f = glm::length(_minAABB + delta / 2.f - (ray.o + ray.d * hits[i].t)) / (1.4142f * delta / 4.f);
 			return ret ;
 		}
 	}
@@ -435,10 +435,10 @@ __global__ void ConeTracingKernel(float* d_pbo, Node* d_node, const uint w, cons
 	glm::vec3 visibility(0.f);
 	float t = 1e5f;
 	visibility += OctreeTraverse(d_node, root, Ray(pos, normal, 30.f), d_Info.minAABB, 0, t);
-	visibility += OctreeTraverse(d_node, root, Ray(pos, normal * sin30 + u * cos30, 30.f), d_Info.minAABB, 0, t);
-	visibility += OctreeTraverse(d_node, root, Ray(pos, normal * sin30 + -u * cos30, 30.f), d_Info.minAABB, 0, t);
-	visibility += OctreeTraverse(d_node, root, Ray(pos, normal * sin30 + v * cos30, 30.f), d_Info.minAABB, 0, t);
-	visibility += OctreeTraverse(d_node, root, Ray(pos, normal * sin30 + -v * cos30, 30.f), d_Info.minAABB, 0, t);
+	visibility += OctreeTraverse(d_node, root, Ray(pos, normal * sin30 + nu * cos30, 30.f), d_Info.minAABB, 0, t);
+	visibility += OctreeTraverse(d_node, root, Ray(pos, normal * sin30 + -nu * cos30, 30.f), d_Info.minAABB, 0, t);
+	visibility += OctreeTraverse(d_node, root, Ray(pos, normal * sin30 + nv * cos30, 30.f), d_Info.minAABB, 0, t);
+	visibility += OctreeTraverse(d_node, root, Ray(pos, normal * sin30 + -nv * cos30, 30.f), d_Info.minAABB, 0, t);
 
 
 	visibility = 1.0f - visibility / 5.f;
