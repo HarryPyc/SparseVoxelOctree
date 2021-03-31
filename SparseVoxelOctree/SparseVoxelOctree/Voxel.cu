@@ -192,8 +192,13 @@ void InitVoxelization(Voxel*& d_voxel) {
 }
 
 void PreProcess(CudaMesh& cuMesh) {
-	clock_t t;
-	t = clock();
+#ifdef PRINT_INFO
+	cudaEvent_t start, stop;
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+	cudaEventRecord(start);
+#endif // PRINT_INFO
+
 	gpuErrchk(cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)));
 	//PreProcess Triangle
 	gpuErrchk(cudaMemcpyToSymbol(mesh, &cuMesh, sizeof(CudaMesh)));
@@ -207,17 +212,25 @@ void PreProcess(CudaMesh& cuMesh) {
 	PreProcessTriangleKernel << < gridDim, blockDim >> > ();
 	gpuErrchk(cudaGetLastError());
 	gpuErrchk(cudaDeviceSynchronize());
+
 #ifdef PRINT_INFO
-	t = clock() - t;
-	printf("Preprocess finished, time : %f\n", (float)t / CLOCKS_PER_SEC);
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
+	float milliseconds = 0;
+	cudaEventElapsedTime(&milliseconds, start, stop);
+	printf("Preprocess finished, time : %f\n", milliseconds);
 #endif // PRINT_INFO
 
 }
 void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel)
 {
+#ifdef PRINT_INFO
+	cudaEvent_t start, stop;
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+	cudaEventRecord(start);
+#endif // PRINT_INFO
 	gpuErrchk(cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)));
-	clock_t t;
-	t = clock();
 
 	gpuErrchk(cudaMemcpyToSymbol(mesh, &cuMesh, sizeof(CudaMesh)));
 	dim3 blockDim = 256, gridDim = cuMesh.triNum / blockDim.x + 1;
@@ -225,13 +238,14 @@ void Voxelization(CudaMesh& cuMesh, Voxel*& d_voxel)
 	gpuErrchk(cudaGetLastError());
 	gpuErrchk(cudaDeviceSynchronize());
 
-
-
 	gpuErrchk(cudaMemcpyFromSymbol(&Info.Counter, voxelCounter, sizeof(uint)));
-	t = clock() - t;
 
 #ifdef PRINT_INFO
-	printf("Voxelization finished, time : %f\n", (float)t / CLOCKS_PER_SEC);
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
+	float t = 0;
+	cudaEventElapsedTime(&t, start, stop);
+	printf("Voxelization finished, time : %f\n", t);
 	printf("Voxel Count: %i\n", Info.Counter);
 #endif // PRINT_INFO
 	//Free CudaMesh

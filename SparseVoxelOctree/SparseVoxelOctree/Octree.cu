@@ -82,11 +82,14 @@ __global__ void OctreeConstructKernel(Node* d_node, Voxel* d_voxel, Voxel* d_nex
 
 void OctreeConstruction(Node*& d_node, Voxel*& d_voxel)
 {
-	clock_t t = clock();
+	cudaEvent_t start, stop;
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+
 	const int MAX_DEPTH = log2(Info.Dim);
 	gpuErrchk(cudaMemcpyToSymbol(d_MAX_DEPTH, &MAX_DEPTH, sizeof(int)));
 	//size_t NODE_SIZE= ((1 << 3 * (MAX_DEPTH + 1)) - 1) / 7 * sizeof(Node);
-	size_t NODE_SIZE = 5e6 * sizeof(Node);
+	size_t NODE_SIZE = 1e7 * sizeof(Node);
 
 	gpuErrchk(cudaMalloc((void**)&d_node, NODE_SIZE));
 	gpuErrchk(cudaMemset(d_node, 0, NODE_SIZE));
@@ -95,6 +98,7 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel)
 	gpuErrchk(cudaMemcpyToSymbol(nodeCounter, &sNodeCounter, sizeof(int)));
 	gpuErrchk(cudaMemcpyToSymbol(d_Info, &Info, sizeof(VoxelizationInfo)));
 
+	cudaEventRecord(start);
 	for (int i = MAX_DEPTH; i > 0; i--) {
 		gpuErrchk(cudaMemcpyToSymbol(curDepth, &i, sizeof(int)));
 		size_t nextSize = 1 << 3 * (i - 1);
@@ -114,6 +118,7 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel)
 		d_voxel = d_nextVoxel;
 		d_ptr = d_nextPtr;
 	}
+	cudaEventRecord(stop);
 
 	gpuErrchk(cudaMemcpy(&sRoot.ptr, d_ptr, sizeof(int), cudaMemcpyDeviceToHost));
 	gpuErrchk(cudaMemcpy(&sRoot.voxel, d_voxel, sizeof(Voxel), cudaMemcpyDeviceToHost));
@@ -123,9 +128,13 @@ void OctreeConstruction(Node*& d_node, Voxel*& d_voxel)
 	gpuErrchk(cudaFree(d_voxel));
 	gpuErrchk(cudaFree(d_ptr));
 	gpuErrchk(cudaMemcpyFromSymbol(&sNodeCounter, nodeCounter, sizeof(int)));
-	t = clock() - t;
+
+
 #ifdef PRINT_INFO
-	printf("Octree Construction Complete, %i total nodes in %f sec\n", sNodeCounter, (float)t / CLOCKS_PER_SEC);
+	cudaEventSynchronize(stop);
+	float milliseconds = 0;
+	cudaEventElapsedTime(&milliseconds, start, stop);
+	printf("Octree Construction Complete, %i total nodes in %f sec\n", sNodeCounter, milliseconds );
 #endif // PRINT_INFO
 
 }
@@ -193,9 +202,13 @@ __global__ void OctreeUpdateKernel(Node* d_node, Node root, Voxel* d_voxel, Voxe
 	}
 }
 
-void OctreeUpdate(Node*& d_node, Voxel*& d_voxel)
-{
-	clock_t t = clock();
+void OctreeUpdate(Node*& d_node, Voxel*& d_voxel){
+#ifdef PRINT_INFO
+	cudaEvent_t start, stop;
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+	cudaEventRecord(start);
+#endif // PRINT_INFO
 	gpuErrchk(cudaMemset(d_node + sNodeCounter, 0, dNodeCounter * sizeof(Node)));//Clear Dynamic Part
 	const int MAX_DEPTH = log2(Info.Dim);
 	root = sRoot;
@@ -235,9 +248,12 @@ void OctreeUpdate(Node*& d_node, Voxel*& d_voxel)
 	gpuErrchk(cudaFree(d_ptr));
 	gpuErrchk(cudaMemcpyFromSymbol(&dNodeCounter, dynamicNodeCounter, sizeof(int)));
 
-	t = clock() - t;
 #ifdef PRINT_INFO
-	printf("Octree Update Complete, %i total nodes in %f sec\n\n", dNodeCounter, (float)t / CLOCKS_PER_SEC);
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
+	float milliseconds = 0;
+	cudaEventElapsedTime(&milliseconds, start, stop);
+	printf("Octree Update Complete, %i total nodes in %f sec\n\n", dNodeCounter, milliseconds);
 #endif // PRINT_INFO
 
 }
